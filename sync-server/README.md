@@ -45,7 +45,9 @@ docker compose -f compose.yaml -f compose.https.yaml up -d
 
 ## 备份与复原
 
-运行以下命令使用 SQLite 在线备份：
+网页「备份与恢复」可下载或恢复当前账号的歌单 JSON，文件也可导入桌面端。首次迁移或准备覆盖前，可以先下载一份。
+
+需要迁移整个同步服务时，运行以下命令使用 SQLite 在线备份：
 
 ```bash
 docker compose exec sync node /app/server.mjs backup /data/backup.sqlite

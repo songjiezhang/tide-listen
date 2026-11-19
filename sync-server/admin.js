@@ -238,6 +238,38 @@ async function sources() {
   }
 }
 
+async function backups() {
+  const state = await api('lists')
+  const panel = section('歌单备份与恢复')
+  const download = button('下载歌单备份', () => {
+    const backup = { songlist: { version: 1, data: state.data } }
+    const url = URL.createObjectURL(new Blob([JSON.stringify(backup)], { type: 'application/json' }))
+    const link = element('a')
+    link.href = url
+    link.download = 'tidelisten-playlists-' + new Date().toISOString().slice(0, 10) + '.json'
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 30000)
+  })
+  download.disabled = !state.data
+  panel.append(download, element('p', '备份包含当前账号的歌单，可在这里恢复，也可导入汐听桌面版。', 'dim'))
+  const form = element('form')
+  const file = field(form, '选择歌单备份', 'backup', 'file')
+  file.accept = '.json,application/json'
+  file.required = true
+  submit(form, '恢复歌单', async ({ backup }) => {
+    if (backup.size > 24 * 1024 * 1024) throw Error('备份文件过大')
+    let data
+    try { data = JSON.parse(await backup.text())?.songlist?.data }
+    catch { throw Error('备份文件格式有误') }
+    if (!data || !Array.isArray(data.userList)) throw Error('备份文件格式有误')
+    if (!confirm('用这份备份替换当前账号的歌单？此改动将同步到配对设备。')) return
+    await put('lists', state.revision, data)
+    await load()
+    status('歌单已恢复')
+  })
+  panel.append(form)
+}
+
 async function load() {
   try { account = await api('account') }
   catch (error) {
@@ -250,7 +282,7 @@ async function load() {
   if (!account) return
   $('content').replaceChildren()
   for (const node of document.querySelectorAll('[data-tab]')) node.setAttribute('aria-current', String(node.dataset.tab === tab))
-  await { devices, users, lists, sources }[tab]()
+  await { devices, users, lists, sources, backups }[tab]()
 }
 
 for (const node of document.querySelectorAll('[data-tab]')) {
