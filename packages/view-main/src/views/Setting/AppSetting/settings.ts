@@ -90,18 +90,11 @@ export const settings: SettingListSection[] = [
           return [...themeList, { name: 'theme_auto', value: 'auto' }]
         },
         onUpdate(value) {
-          if (value === 'auto') {
-            void updateSetting({
-              'theme.id': value,
-              'theme.lightId': settingState.setting['theme.id'] === 'black' ? undefined : settingState.setting['theme.id'],
-            })
-            showNotify(i18n.t('settings__basic_theme_auto_desc'))
-          } else {
-            void updateSetting({
-              'theme.id': value as string,
-              'theme.lightId': value === 'black' ? undefined : (value as string),
-            })
-          }
+          const selected = value as string
+          const previous = selected === 'auto' ? settingState.setting['theme.id'] : selected
+          const lightTheme = previous === 'black' || previous === 'midnight' || previous === 'auto' ? undefined : previous
+          void updateSetting({ 'theme.id': selected, 'theme.lightId': lightTheme })
+          if (selected === 'auto') showNotify(i18n.t('settings__basic_theme_auto_desc'))
         },
       },
       {

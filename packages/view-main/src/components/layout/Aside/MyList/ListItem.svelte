@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '@/plugins/i18n'
   import SvgIcon from '@/components/base/SvgIcon.svelte'
   import Image from '@/components/base/Image.svelte'
   import type { MouseEventHandler } from 'svelte/elements'
@@ -13,7 +14,6 @@
     oncontextmenu,
   }: {
     listInfo: AnyListen.List.MyListInfo
-    index: number
     active?: boolean
     picStyle: string
     oncontextmenu?: MouseEventHandler<HTMLDivElement>
@@ -56,12 +56,22 @@
   {oncontextmenu}
 >
   <div class="left" style={picStyle}>
-    <Image src={listCover.val} icon={LIST_PIC_ICON[listInfo.id as keyof typeof LIST_PIC_ICON]} />
+    <Image
+      src={import.meta.env.VITE_IS_DESKTOP && listInfo.type === 'default' ? listInfo.meta.pic : listCover.val}
+      artworkKey={listInfo.id}
+      icon={LIST_PIC_ICON[listInfo.id as keyof typeof LIST_PIC_ICON]}
+    />
   </div>
   <div class="right">
     <span>{listInfo.name}</span>
     <div class="meta">
-      <span><SvgIcon name="music" />{listInfo.meta.songCount}</span>
+      <span>
+        {#if import.meta.env.VITE_IS_DESKTOP}
+          {$t('track_count_short', { num: listInfo.meta.songCount })}
+        {:else}
+          <SvgIcon name="music" />{listInfo.meta.songCount}
+        {/if}
+      </span>
       <!-- <span><SvgIcon name="headphones" /> {listInfo.meta.playCount}</span> -->
     </div>
   </div>
@@ -136,5 +146,35 @@
     gap: 12px;
     font-size: 12px;
     color: var(--color-300);
+  }
+  :global(.desktop) .container {
+    gap: 10px;
+    padding: 7px 10px;
+    border-radius: 0.875rem;
+
+    .left :global(.pic) {
+      border-radius: 0.625rem;
+    }
+    .left :global(.empty-pic:not(.favorite-cover)) {
+      color: var(--color-font);
+      background: linear-gradient(135deg, var(--color-200), var(--color-100));
+    }
+    .left :global(.empty-pic svg) {
+      width: 52%;
+    }
+
+    &.active {
+      font-weight: 600;
+      color: var(--color-font);
+      background-color: color-mix(in srgb, var(--color-font) 8%, transparent);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: -2px;
+    }
+    .meta {
+      font-weight: 400;
+      color: var(--color-font-label);
+    }
   }
 </style>

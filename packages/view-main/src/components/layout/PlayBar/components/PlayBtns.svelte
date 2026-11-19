@@ -23,7 +23,7 @@
       <use xlink:href="#icon-skip-prev" />
     </svg>
   </button>
-  <button class="btn" aria-label={$playing ? $t('player__pause') : $t('player__play')} onclick={togglePlay}>
+  <button class="btn play-toggle" aria-label={$playing ? $t('player__pause') : $t('player__play')} onclick={togglePlay}>
     {#if $playing}
       <svg version="1.1" xmlns="http://www.w3.org/2000/svg" width={iconSize2} height={iconSize2} viewBox="0 0 24 24">
         <use xlink:href="#icon-pause" />
@@ -75,6 +75,44 @@
     }
     &:active {
       opacity: 0.6;
+    }
+  }
+  :global(.desktop) .container {
+    gap: var(--transport-gap, 6px);
+
+    .btn {
+      align-items: center;
+      justify-content: center;
+      height: var(--transport-skip-size, 52%);
+      aspect-ratio: 1;
+      color: var(--color-850);
+      border-radius: 50%;
+
+      svg {
+        width: 72%;
+        height: 72%;
+      }
+      &:hover {
+        background-color: var(--color-primary-background-hover);
+      }
+      &:focus-visible {
+        outline: 2px solid var(--color-primary-dark-200);
+        outline-offset: 2px;
+      }
+    }
+    .play-toggle {
+      height: var(--transport-main-size, 64%);
+      color: white;
+      background: var(--action-fill);
+
+      svg {
+        width: 55%;
+        height: 55%;
+      }
+
+      &:hover {
+        filter: brightness(1.12);
+      }
     }
   }
 </style>

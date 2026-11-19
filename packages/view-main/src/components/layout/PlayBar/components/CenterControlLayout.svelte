@@ -39,6 +39,10 @@
   .right {
     justify-content: flex-end;
   }
+  :global(.desktop) .right {
+    min-width: max-content;
+    white-space: nowrap;
+  }
   .space {
     padding-right: 10px;
   }

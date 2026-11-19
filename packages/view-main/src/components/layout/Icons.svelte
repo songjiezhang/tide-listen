@@ -1,5 +1,39 @@
 <svg style="display: none;" aria-hidden="true">
   <defs>
+    {#if import.meta.env.VITE_IS_DESKTOP}
+      <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <g id="icon-nav-cloud">
+          <path d="M17.5 19H9a7 7 0 1 1 6.7-9h1.8a4.5 4.5 0 1 1 0 9Z" />
+        </g>
+        <g id="icon-nav-history">
+          <circle cx="12" cy="12" r="8" />
+          <path d="M12 7v5l3 2" />
+        </g>
+        <g id="icon-nav-settings">
+          <path d="M4 6h10m4 0h2M4 12h4m4 0h8M4 18h12" />
+          <circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" />
+        </g>
+        <g id="icon-nav-extensions">
+          <rect x="4" y="4" width="6" height="6" rx="2" /><rect x="14" y="4" width="6" height="6" rx="2" />
+          <rect x="4" y="14" width="6" height="6" rx="2" /><rect x="14" y="14" width="6" height="6" rx="2" />
+        </g>
+      </g>
+      <symbol id="icon-toolbar-find" viewBox="0 0 24 24">
+        <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="7" /><path d="m16 16 5 5" /></g>
+      </symbol>
+      <symbol id="icon-toolbar-select" viewBox="0 0 24 24">
+        <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="4" /><path d="m8 12 3 3 5-6" /></g>
+      </symbol>
+      <symbol id="icon-toolbar-copies" viewBox="0 0 24 24">
+        <g fill="none" stroke="currentColor" stroke-width="1.75"><rect x="8" y="8" width="12" height="12" rx="3" /><path d="M5 15a2 2 0 0 1-1-2V7a3 3 0 0 1 3-3h6a2 2 0 0 1 2 1" /></g>
+      </symbol>
+      <symbol id="icon-toolbar-order" viewBox="0 0 24 24">
+        <path d="M7 4v16m0 0-3-3m3 3 3-3M17 20V4m0 0-3 3m3-3 3 3" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="icon-toolbar-shuffle" viewBox="0 0 24 24">
+        <path d="M16 4h4v4M4 20 20 4m0 12v4h-4M4 4l5 5m6 6 5 5" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+    {/if}
     <g id="icon-download" fill="currentColor">
       <!-- 0 0 475.078 475.077-->
       <path

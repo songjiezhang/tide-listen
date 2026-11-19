@@ -464,15 +464,21 @@ export const getExtensionConfigValues = async (id: string, fields: string[]) => 
   return result
 }
 
-export const updateExtensionSettings = async (id: string, config: Record<string, any>) => {
+export const updateExtensionSettings = async (id: string, config: Record<string, any>, reload = false) => {
   const targetExt = extensionState.extensions.find((ext) => ext.id == id)
   if (!targetExt) throw new Error('extension not found')
   // TODO: verify config key and value
   const configs = await getConfig(targetExt)
   const newConfig = { ...configs, ...config }
   await saveConfig(targetExt, newConfig)
-  extensionEvent.extenstionSettingUpdated(id, Object.keys(config), config)
-  if (targetExt.loaded && !targetExt.internal) sendConfigUpdatedEvent(id, Object.keys(config), config)
+  const keysChanged = Object.keys(config)
+  if (reload && targetExt.loaded && !targetExt.internal) {
+    // Rebuild the enabled source list in priority order before notifying the settings view.
+    await stopRunExtension(targetExt)
+    await loadExtension(targetExt)
+  }
+  extensionEvent.extenstionSettingUpdated(id, keysChanged, config)
+  if (!reload && targetExt.loaded && !targetExt.internal) sendConfigUpdatedEvent(id, keysChanged, config)
 
   const targetSetting = extensionState.extensionSettings?.find((s) => s.id == targetExt.id)
   if (targetSetting) {

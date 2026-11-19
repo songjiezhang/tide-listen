@@ -49,4 +49,17 @@
     //   // z-index: -1;
     // }
   }
+  :global(.desktop) {
+    #app-main {
+      gap: var(--shell-gap);
+      min-height: 0;
+      padding: var(--shell-gap) var(--shell-gap) 0;
+    }
+    #app-right {
+      min-width: 0;
+      background: var(--panel-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-panel);
+    }
+  }
 </style>

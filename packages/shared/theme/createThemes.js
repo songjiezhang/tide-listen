@@ -7,6 +7,33 @@ import { createThemeColors } from './utils.js'
 
 const defaultThemes = [
   {
+    id: 'midnight',
+    name: '午夜紫',
+    isDark: true,
+    config: {
+      primary: 'rgb(139, 124, 255)',
+      font: 'rgb(242, 243, 245)',
+      '--color-app-background': '#16181d',
+      '--color-main-background': '#0e0f13',
+      '--color-content-background': '#16181d',
+      '--color-font': '#f2f3f5',
+      '--color-font-label': '#9aa0ab',
+      '--color-border': 'rgba(255, 255, 255, 0.07)',
+      '--desktop-dock': '#1b1e25',
+      '--desktop-action': 'linear-gradient(120deg, #6a5af0, #3f7bf0)',
+      '--color-btn-hide': '#9aa0ab',
+      '--color-btn-min': '#9aa0ab',
+      '--color-btn-close': '#dc596a',
+      '--color-badge-primary': '#b7bdc8',
+      '--color-badge-secondary': '#77b1ff',
+      '--color-badge-tertiary': '#c0afff',
+      '--background-image': 'none',
+      '--background-image-position': 'center',
+      '--background-image-size': 'cover',
+      '--background-blur': '0',
+    },
+  },
+  {
     id: 'green',
     name: '绿意盎然',
     isDark: false,

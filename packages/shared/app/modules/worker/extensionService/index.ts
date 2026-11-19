@@ -27,6 +27,7 @@ import {
   getOnlineTags,
   initOnlineList,
 } from './onlineExtension'
+import { manageLinkedLxSource } from './linkedLxSources'
 import { resetI18n } from './onlineExtension/i18n'
 import {
   buildExtensionSettings,
@@ -42,6 +43,7 @@ import { listProviderAction, resourceAction, updateI18nMessage, updateLocale } f
 registerErrorHandler()
 
 const extension = {
+  manageLinkedLxSource,
   downloadAndParseExtension,
   installExtension,
   loadLocalExtensions,

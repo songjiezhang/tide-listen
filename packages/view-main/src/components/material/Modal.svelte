@@ -220,7 +220,7 @@
     overflow: hidden;
     outline: none;
     background-color: var(--color-content-background);
-    border-radius: 4px;
+    border-radius: var(--radius-panel, 4px);
     box-shadow: 0 0 4px rgb(0 0 0 / 25%);
   }
 
@@ -263,6 +263,18 @@
       &:active {
         background-color: var(--color-primary-dark-200-alpha-600);
       }
+    }
+  }
+  :global(.desktop) .header {
+    height: 32px;
+    padding-inline: 12px;
+    h3,
+    button {
+      color: var(--accent-ink);
+    }
+    button {
+      height: 24px;
+      border-radius: var(--radius-control);
     }
   }
 </style>

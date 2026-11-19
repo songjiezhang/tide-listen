@@ -1,11 +1,8 @@
-import { getLatestVersion } from '@any-listen/common/tools'
-
 import { i18n } from '@/i18n'
 
 import { appEvent, appState } from '../app'
 import { checkUpdate, downloadUpdate, initUpdate, restartUpdate } from './electronUpdate'
-import { request } from './request'
-import { compareVersions, sleep } from './utils'
+import { sleep } from './utils'
 
 interface EventTypes {
   checking_for_update: never
@@ -49,96 +46,38 @@ class UpdateEvent {
   }
 }
 
-const enName = 'YW55LWxpc3Rlbg=='
-const name = Buffer.from(enName, 'base64').toString()
-const pkgName = `${name}-desktop`
-const address = [
-  [`https://raw.githubusercontent.com/${name}/${name}/main/packages/desktop/publish/version.json`, 'direct'],
-  [`https://registry.npmjs.org/@${name}/${pkgName}/latest`, 'npm'],
-  [`https://cdn.jsdelivr.net/gh/${name}/${name}/packages/desktop/publish/version.json`, 'direct'],
-  [`https://fastly.jsdelivr.net/gh/${name}/${name}/packages/desktop/publish/version.json`, 'direct'],
-  [`https://gcore.jsdelivr.net/gh/${name}/${name}/packages/desktop/publish/version.json`, 'direct'],
-  [`https://registry.npmmirror.com/@${name}/${pkgName}/latest`, 'npm'],
-  ['http://cdn.stsky.cn/any-listen/desktop/version.json', 'direct'],
-] as const
-
-const getDirectInfo = async (url: string) => {
-  return request<Partial<AnyListen.UpdateInfo>>(url).then(({ body }) => {
-    if (body.version == null) throw new Error('failed')
-    return body as AnyListen.UpdateInfo
-  })
-}
-
-const getNpmPkgInfo = async (url: string) => {
-  return request<{ versionInfo?: string }>(url).then(({ body }) => {
-    if (!body.versionInfo) throw new Error('failed')
-    const info = JSON.parse(body.versionInfo) as Partial<AnyListen.UpdateInfo>
-    if (info.version == null) throw new Error('failed')
-    return info as AnyListen.UpdateInfo
-  })
-}
-export const getUpdateInfo = async (index = 0): Promise<AnyListen.UpdateInfo> => {
-  const [url, source] = address[index]
-  let promise: Promise<AnyListen.UpdateInfo>
-  switch (source) {
-    case 'direct':
-      promise = getDirectInfo(url)
-      break
-    case 'npm':
-      promise = getNpmPkgInfo(url)
-      break
-  }
-
-  return promise.catch(async (err: Error) => {
-    index++
-    if (index >= address.length) throw err
-    return getUpdateInfo(index)
-  })
-}
-
 export class Update extends UpdateEvent {
-  private info: AnyListen.UpdateInfo | null = null
   initUpdate() {
     initUpdate(this)
     appEvent.on('updated_config', (keys, settings) => {
       if (keys.includes('common.allowPreRelease')) {
-        void this.checkUpdateStatus(appState.appSetting['common.tryAutoUpdate'])
+        void this.checkForUpdates(appState.appSetting['common.tryAutoUpdate'])
       }
     })
-  }
-  async checkUpdateStatus(isAutoUpdate: boolean) {
-    if (!this.info) return false
-    const latest = getLatestVersion(this.info, appState.appSetting['common.allowPreRelease'])
-    if (compareVersions(appState.version.version, latest.version) < 0) {
-      await checkUpdate(appState.appSetting['common.allowPreRelease'])
-        .then(() => {
-          if (isAutoUpdate) {
-            setImmediate(() => {
-              void downloadUpdate()
-            })
-          }
-        })
-        .catch((error) => {
-          setImmediate(() => {
-            this.emit('error', error as Error)
-          })
-        })
-      this.emit('update_available', this.info)
-      return true
-    }
-    this.emit('update_not_available', this.info)
-    return false
   }
   async checkForUpdates(isAutoUpdate: boolean) {
     this.emit('checking_for_update')
     try {
-      this.info = await getUpdateInfo()
+      const result = await checkUpdate(appState.appSetting['common.allowPreRelease'])
+      if (!result) throw new Error('Update checking requires an installed build')
+      const { version, releaseNotes, releaseDate } = result.updateInfo
+      const info = {
+        version,
+        desc: typeof releaseNotes === 'string' ? releaseNotes : (releaseNotes ?? []).map((entry) => entry.note).join('\n'),
+        time: releaseDate,
+        history: [],
+      }
+      if (result.isUpdateAvailable) {
+        this.emit('update_available', info)
+        if (isAutoUpdate) await this.downloadUpdate()
+      } else {
+        this.emit('update_not_available', info)
+      }
+      return result.isUpdateAvailable
     } catch (err) {
       this.emit('error', err as Error)
       return false
     }
-
-    return this.checkUpdateStatus(isAutoUpdate)
   }
   async downloadUpdate() {
     if (import.meta.env.VITE_IS_MAC) {

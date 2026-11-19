@@ -71,6 +71,9 @@
       {$t('settings.update.downloading')}<br />{$t('settings.update.progress')}{downloadProgress}
     </div>
   {/if}
+  {#if import.meta.env.VITE_IS_DESKTOP && !versionInfo.val.newVersion}
+    <Btn min onclick={showUpdateModal}>{$t('settings.update.open_version_modal_btn')}</Btn>
+  {/if}
   {#if versionInfo.val.newVersion}
     {#if versionInfo.val.isLatest}
       <div class="p"><span>{$t('settings.update.latest')}</span></div>

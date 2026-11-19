@@ -33,7 +33,7 @@
       {
         to: '/online',
         name: $t('online_resources'),
-        icon: '#icon-sound_cloud',
+        icon: import.meta.env.VITE_IS_DESKTOP ? '#icon-nav-cloud' : '#icon-sound_cloud',
         iconSize: '0 0 24 24',
         enable: onlineResourceAvailable.val,
         onclick: (e: MouseEvent) => {
@@ -59,7 +59,7 @@
       {
         to: lastPlayedUrl,
         name: $t('list_name__last_play'),
-        icon: '#icon-memories',
+        icon: import.meta.env.VITE_IS_DESKTOP ? '#icon-nav-history' : '#icon-memories',
         iconSize: '0 0 24 24',
         enable: true,
       },
@@ -74,14 +74,14 @@
       {
         to: '/settings',
         name: $t('setting'),
-        icon: '#icon-settings',
+        icon: import.meta.env.VITE_IS_DESKTOP ? '#icon-nav-settings' : '#icon-settings',
         iconSize: '0 0 24 24',
         enable: true,
       },
       {
         to: '/extenstion',
         name: $t('extenstion'),
-        icon: '#icon-puzzle',
+        icon: import.meta.env.VITE_IS_DESKTOP ? '#icon-nav-extensions' : '#icon-puzzle',
         iconSize: '0 0 24 24',
         enable: true,
         hidden: true,
@@ -150,7 +150,7 @@
   {@render listItem({
     to: '/extenstion',
     name: $t('extenstion'),
-    icon: '#icon-puzzle',
+    icon: import.meta.env.VITE_IS_DESKTOP ? '#icon-nav-extensions' : '#icon-puzzle',
     iconSize: '0 0 24 24',
     enable: true,
     waringBadge: extensionError.val,
@@ -250,5 +250,39 @@
   .nav-name {
     font-size: 13px;
     line-height: 1.2;
+  }
+  :global(.desktop) {
+    .aside-nav {
+      gap: 0;
+      padding: 0;
+    }
+    .link {
+      padding: 6px 12px;
+      color: var(--color-font-label);
+      border-radius: 100vmax;
+
+      &.active {
+        font-weight: 600;
+        color: var(--accent-ink);
+        background-color: var(--color-primary-alpha-800);
+      }
+      &:focus-visible {
+        outline: 2px solid var(--color-primary);
+        outline-offset: -2px;
+      }
+    }
+    .left {
+      gap: 12px;
+      .icon svg {
+        fill: none;
+        stroke: currentcolor;
+        stroke-width: 1.75;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+    }
+    .nav-name {
+      font-size: 14px;
+    }
   }
 </style>

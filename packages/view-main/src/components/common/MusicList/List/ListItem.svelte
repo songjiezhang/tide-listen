@@ -84,6 +84,7 @@
   class="container"
   class:selected
   class:active
+  class:playing
   class:selectedactive
   role="button"
   tabindex="0"
@@ -93,8 +94,21 @@
   onmouseenter={() => (hovered = true)}
   onmouseleave={() => (hovered = false)}
 >
+  {#if import.meta.env.VITE_IS_DESKTOP}
+    <span class="track-number" aria-hidden="true">
+      {#if playing}
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
+          <rect x="2" y="6" width="3" height="8" rx="1.5" />
+          <rect x="7" y="2" width="3" height="12" rx="1.5" />
+          <rect x="12" y="4" width="3" height="10" rx="1.5" />
+        </svg>
+      {:else}
+        {index + 1}
+      {/if}
+    </span>
+  {/if}
   <div class="pic" style={picStyle}>
-    {#if playing}
+    {#if playing && !import.meta.env.VITE_IS_DESKTOP}
       <div class="play-icon" transition:fade={{ delay: 200 }}>
         <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
           <use xlink:href="#icon-play" />
@@ -103,6 +117,7 @@
     {/if}
     <Image
       src={picUrl}
+      artworkKey={musicinfo.id}
       onerror={() => {
         picUrl = null
         if (retryedLoadPic) return
@@ -110,7 +125,7 @@
         loadPic()
       }}
     />
-    {#if hovered}
+    {#if hovered && !import.meta.env.VITE_IS_DESKTOP}
       <div class="num" transition:fade={{ duration: 200 }}>
         {index + 1}
       </div>
@@ -121,7 +136,7 @@
       <div class="select name" aria-label={musicinfo.name}>{musicinfo.name}</div>
       <div class="label">
         {#each sourceLabel as label, index (index)}
-          <Badge {label} opacity={0.7} type={badgeTypes[index % badgeTypes.length]} />
+          <Badge {label} opacity={import.meta.env.VITE_IS_DESKTOP ? 1 : 0.7} type={badgeTypes[index % badgeTypes.length]} />
         {/each}
       </div>
     </div>
@@ -362,5 +377,57 @@
     flex-flow: row nowrap;
     gap: 4px;
     align-items: center;
+  }
+  :global(.desktop) {
+    .container {
+      display: grid;
+      grid-template-columns: var(--track-columns);
+      column-gap: 8px;
+      padding: 3px 11px;
+      border-radius: 0.75rem;
+    }
+    .pic,
+    .pic :global(.pic) {
+      border-radius: 0.5rem;
+    }
+    .track-number {
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      color: var(--color-font-label);
+    }
+    .list-item-cell {
+      min-width: 0;
+      color: var(--color-font-label);
+    }
+    .name {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--color-font);
+    }
+    .label {
+      gap: 4px;
+      padding: 0;
+      :global(.badge) {
+        padding: 1px 5px;
+        font-size: 10px;
+        line-height: 1.25;
+        background: color-mix(in srgb, currentcolor 12%, transparent);
+        border-radius: 4px;
+      }
+    }
+    .playing {
+      .track-number {
+        color: var(--color-primary);
+      }
+      &:not(.active, .selected, :hover) {
+        background: color-mix(in srgb, var(--color-font) 6%, transparent);
+      }
+    }
+    .list-item-cell:last-child {
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
   }
 </style>

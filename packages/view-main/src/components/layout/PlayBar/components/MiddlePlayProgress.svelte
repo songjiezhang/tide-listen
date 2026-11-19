@@ -41,4 +41,7 @@
     //   // border-radius: 0;
     // }
   }
+  :global(.desktop) .progress {
+    min-width: 3rem;
+  }
 </style>

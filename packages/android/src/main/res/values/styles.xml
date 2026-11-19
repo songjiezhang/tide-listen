@@ -1,0 +1,16 @@
+<resources>
+    <style name="Midnight" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:alertDialogTheme">@style/MidnightDialog</item>
+        <item name="android:windowBackground">#0e0f13</item>
+        <item name="android:colorAccent">#8b7cff</item>
+        <item name="android:colorBackground">#16181d</item>
+        <item name="android:statusBarColor">#0e0f13</item>
+        <item name="android:navigationBarColor">#0e0f13</item>
+        <item name="android:fontFamily">sans</item>
+    </style>
+    <style name="MidnightDialog" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/dialog_surface</item>
+        <item name="android:colorAccent">#b4a4ff</item>
+    </style>
+    <string name="dav_directory_hint">填写桌面设置中的 WebDAV 地址加同步路径，指向包含 list 子目录的位置。</string>
+</resources>

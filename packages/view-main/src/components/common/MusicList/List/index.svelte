@@ -44,8 +44,8 @@
   let playingIndex = $derived(
     $playMusicInfo?.listId == listinfo.id ? list.findIndex((m) => m.id == $playMusicInfo.musicInfo.id) : -1
   )
-  let listItemHeight = useListItemHeight(3.2)
-  let picwidth = $derived(listItemHeight.val * 0.8)
+  let listItemHeight = useListItemHeight(import.meta.env.VITE_IS_DESKTOP ? 3.5 : 3.2)
+  let picwidth = $derived(listItemHeight.val * (import.meta.env.VITE_IS_DESKTOP ? 5 / 7 : 0.8))
   let picStyle = $derived(`height:${picwidth}px; width:${picwidth}px;`)
   let activeIndex = $state(-1)
   let itv: number | null = null
@@ -234,5 +234,8 @@
     // padding: 0 5px;
     margin: 0 6px;
     overflow: hidden;
+  }
+  :global(.desktop) .container {
+    margin-inline: var(--list-inset);
   }
 </style>

@@ -51,6 +51,10 @@
     //     color: var(--color-button-font);
     //   }
   }
+  :global(.desktop) .container {
+    gap: clamp(0.375rem, 1vw, 0.875rem);
+    padding-inline: clamp(0.5rem, 1.2vw, 1rem) 0.25rem;
+  }
 
   // .titleBtn {
   //   flex: none;

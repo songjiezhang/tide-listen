@@ -50,4 +50,12 @@
   // :global(html.mac .aside-nav) {
   //   padding-top: env(titlebar-area-height, 30px);
   // }
+  :global(.desktop) .aside {
+    width: clamp(10rem, 20.625vw, 16.5rem);
+    padding-inline: clamp(0.375rem, 1vw, 0.75rem);
+    overflow: hidden;
+    background: var(--panel-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 1.25rem;
+  }
 </style>

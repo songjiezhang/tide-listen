@@ -38,4 +38,14 @@
     font-size: 15px;
     .mixin-ellipsis-1();
   }
+  :global(.desktop) {
+    .name {
+      font-weight: 600;
+      color: var(--color-font);
+    }
+    .status-text {
+      font-size: 13px;
+      color: var(--color-700);
+    }
+  }
 </style>

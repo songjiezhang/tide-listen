@@ -93,4 +93,13 @@
   //     }
   //   }
   // }
+  :global(.desktop) {
+    .toolbar {
+      height: clamp(3.5rem, 9.8vh, 5rem);
+    }
+    .left {
+      min-width: 0;
+      margin-left: var(--page-inset);
+    }
+  }
 </style>

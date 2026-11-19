@@ -174,6 +174,10 @@
       <button type="button" aria-label={$t('btn_submit')} onclick={handleSearch}>
         {#if searchicon}
           {@render searchicon()}
+        {:else if import.meta.env.VITE_IS_DESKTOP}
+          <svg height="100%" viewBox="0 0 24 24" aria-hidden="true">
+            <use href="#icon-toolbar-find" />
+          </svg>
         {:else}
           <svg height="100%" viewBox="0 0 30.239 30.239">
             <use xlink:href="#icon-search" />
@@ -377,6 +381,41 @@
       height: 30px;
       button {
         padding: 6px 10px;
+      }
+    }
+  }
+  :global(.desktop .toolbar) .search-input {
+    width: min(25rem, 100%);
+    min-width: 0;
+    height: 2.5rem;
+  }
+  :global(.desktop .toolbar) .content {
+    overflow: hidden;
+    background-color: color-mix(in srgb, var(--color-font) 4%, var(--color-content-background));
+    border-radius: 1.25rem;
+    .form {
+      height: 2.5rem;
+      padding-inline: 6px;
+    }
+    .form button {
+      align-items: center;
+      padding: 0 8px;
+      color: var(--color-font-label);
+      svg {
+        height: 18px;
+      }
+    }
+
+    box-shadow: inset 0 0 0 1px var(--color-border);
+
+    &.active {
+      background-color: var(--color-content-background);
+      box-shadow: 0 0 0 1px var(--color-primary), 0 8px 20px rgb(0 0 0 / 13%);
+    }
+    .form input {
+      padding-inline-start: 14px;
+      &::placeholder {
+        color: var(--color-650);
       }
     }
   }

@@ -50,8 +50,8 @@ const options = {
   publish: [
     {
       provider: 'github',
-      owner: 'any-listen',
-      repo: 'any-listen-desktop',
+      owner: 'songjiezhang',
+      repo: 'mylisten-midnight',
     },
   ],
 }
@@ -73,7 +73,7 @@ const winOptions = {
     differentialPackage: true,
     license: './licenses/license.rtf',
     shortcutName: 'Any Listen',
-    artifactName: `\${productName}-\${version}-\${arch}-Setup.\${ext}`,
+    artifactName: `Any-Listen-Midnight-\${version}-\${arch}-Setup.\${ext}`,
     installerSidebar: './resources/install_bg3.bmp',
   },
   portable: {

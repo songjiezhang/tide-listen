@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data: https://art.midnight.invalid"
+    />
+    <title>Any Listen</title>
+    <link rel="stylesheet" href="player.css" />
+  </head>
+  <body>
+    <svg class="defs" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <symbol id="glyph-wave" viewBox="0 0 24 24"><path d="M2 12h3l2-7 4 15 3-17 3 13 2-5 3 1" /></symbol>
+        <symbol id="glyph-disc" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" />
+          <circle cx="12" cy="12" r="2.5" />
+          <path d="M6 12a6 6 0 0 1 6-6m6 6a6 6 0 0 1-6 6" />
+        </symbol>
+        <symbol id="glyph-list" viewBox="0 0 24 24"><path d="M4 6h16M4 12h12M4 18h8"/></symbol>
+        <symbol id="glyph-heart" viewBox="0 0 24 24">
+          <path d="M20.8 4.8a5.5 5.5 0 0 0-7.8 0L12 6l-1-1.2a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.4a5.5 5.5 0 0 0 0-7.8Z" />
+        </symbol>
+        <symbol id="glyph-sliders" viewBox="0 0 24 24">
+          <path d="M4 7h6m5 0h5M4 17h9m5 0h2" />
+          <circle cx="12.5" cy="7" r="2.5" />
+          <circle cx="15.5" cy="17" r="2.5" />
+        </symbol>
+        <symbol id="glyph-play" viewBox="0 0 24 24"><path class="solid" d="m8 4 12 8-12 8z" /></symbol>
+        <symbol id="glyph-pause" viewBox="0 0 24 24"><path class="solid" d="M6 4h4v16H6zm8 0h4v16h-4z" /></symbol>
+        <symbol id="glyph-next" viewBox="0 0 24 24"><path class="solid" d="m4 5 11 7L4 19zm12 0h3v14h-3z" /></symbol>
+        <symbol id="glyph-prev" viewBox="0 0 24 24"><path class="solid" d="m20 5-11 7 11 7zM5 5h3v14H5z" /></symbol>
+        <symbol id="glyph-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
+        <symbol id="glyph-search" viewBox="0 0 24 24">
+          <circle cx="10" cy="10" r="6.5" />
+          <path d="m15 15 5 5" />
+        </symbol>
+        <symbol id="glyph-sync" viewBox="0 0 24 24">
+          <path d="M3 10a9 9 0 0 1 15-5l3 3m0-5v5h-5m5 6a9 9 0 0 1-15 5l-3-3m0 5v-5h5" />
+        </symbol>
+        <symbol id="glyph-file" viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6zM14 3v5h5M9 13l-2 2 2 2m5-4 2 2-2 2" /></symbol>
+        <symbol id="glyph-more" viewBox="0 0 24 24">
+          <circle cx="5" cy="12" r="1" />
+          <circle cx="12" cy="12" r="1" />
+          <circle cx="19" cy="12" r="1" />
+        </symbol>
+        <symbol id="glyph-home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-4v-7H8v7H4a1 1 0 0 1-1-1z"/></symbol>
+        <symbol id="glyph-back" viewBox="0 0 24 24"><path d="m14 5-7 7 7 7"/></symbol>
+        <symbol id="glyph-down" viewBox="0 0 24 24"><path d="m5 9 7 7 7-7"/></symbol>
+        <symbol id="glyph-shuffle" viewBox="0 0 24 24"><path d="M3 6h3c4 0 7 12 11 12h4m-4-4 4 4-4 4M3 18h3c4 0 7-12 11-12h4m-4-4 4 4-4 4"/></symbol>
+        <symbol id="glyph-order" viewBox="0 0 24 24"><path d="M3 5h16M3 10h16M3 15h10m3-1 5 3-5 3z"/></symbol>
+        <symbol id="glyph-loop" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4m4-4H7a4 4 0 0 0-4 4v2m4 10-4-4 4-4m-4 4h14a4 4 0 0 0 4-4v-2"/></symbol>
+        <symbol id="glyph-one" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4m4-4H7a4 4 0 0 0-4 4v2m4 10-4-4 4-4m-4 4h14a4 4 0 0 0 4-4v-2m-11-1 2-2v6"/></symbol>
+        <symbol id="glyph-cloud" viewBox="0 0 24 24"><path d="M6 17H5a3.5 3.5 0 0 1-.4-7 7 7 0 0 1 13.2-1A4 4 0 0 1 19 17h-1m-9-1 2 2 4-4"/></symbol>
+        <symbol id="glyph-bookmark" viewBox="0 0 24 24"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"/></symbol>
+        <symbol id="glyph-pencil" viewBox="0 0 24 24"><path d="M4 16 16 4a2 2 0 0 1 3 3L7 19l-4 1zM14 6l4 4"/></symbol>
+        <symbol id="glyph-trash" viewBox="0 0 24 24"><path d="M3 7h18M6 7l1 13h10l1-13M9 7V4h6v3m-5 4v5m4-5v5"/></symbol>
+      </defs>
+    </svg>
+    <div id="shell">
+      <header class="appHeader">
+        <div class="brand"><i><svg><use href="#glyph-wave" /></svg></i>Any Listen</div>
+        <button id="syncBadge" class="syncBadge" hidden><svg><use href="#glyph-cloud" /></svg><span></span></button>
+      </header>
+      <main id="view"></main>
+      <footer id="miniPlayer">
+        <button id="nowOpen" class="now" aria-label="打开正在播放">
+          <span id="miniCover" class="cover thumb"><svg><use href="#glyph-disc" /></svg></span>
+          <span class="nowText"><strong id="nowName">尚未播放</strong><span id="nowArtist"></span></span>
+        </button>
+        <div class="miniControls">
+          <button id="miniHeart" class="plain" aria-label="加入我喜欢" disabled></button>
+          <button id="miniMode" class="plain" aria-label="切换播放模式" hidden></button>
+          <button id="miniPrev" class="plain carPrev" aria-label="上一首" disabled><svg><use href="#glyph-prev" /></svg></button>
+          <button id="miniToggle" class="round" aria-label="播放" disabled></button>
+          <button id="miniNext" class="plain" aria-label="下一首" disabled><svg><use href="#glyph-next" /></svg></button>
+        </div>
+        <div class="miniProgress" aria-hidden="true"><span id="miniProgress"></span></div>
+      </footer>
+      <nav aria-label="底部导航">
+        <button data-tab="home" aria-current="page"><svg><use href="#glyph-home" /></svg>首页</button>
+        <button data-tab="lists"><svg><use href="#glyph-list" /></svg>我的列表</button>
+        <button data-tab="settings"><svg><use href="#glyph-sliders" /></svg>设置</button>
+      </nav>
+    </div>
+    <section id="nowScreen" hidden aria-label="正在播放">
+      <header class="screenHeader">
+        <button id="closeNow" class="plain" aria-label="收起播放界面"><svg><use href="#glyph-down" /></svg></button>
+        <span>正在播放</span>
+      </header>
+      <div class="screenContent">
+        <div id="fullCover" class="cover fullCover"><svg><use href="#glyph-disc" /></svg></div>
+        <div class="screenTitle">
+          <div><h1 id="fullName">尚未播放</h1><div class="muted" id="fullArtist"></div></div>
+          <button id="fullHeart" class="plain" aria-label="加入我喜欢" disabled></button>
+        </div>
+        <section class="lyricsPane" aria-labelledby="lyricsHeading">
+          <h2 id="lyricsHeading">歌词</h2>
+          <div id="lyricsViewport" class="lyricsViewport" hidden>
+            <ol id="lyricsLines" class="lyricsLines"></ol>
+          </div>
+          <div id="lyricsStatus" class="lyricsStatus">
+            <span id="lyricsStatusText" role="status">播放歌曲后显示歌词</span>
+            <button id="lyricsRetry" class="secondary" hidden>重试</button>
+          </div>
+        </section>
+        <div class="screenTransport">
+          <div class="timeline">
+            <input id="seek" type="range" min="0" max="1" value="0" aria-label="播放进度" disabled />
+            <div class="times"><span id="position">0:00</span><span id="duration">0:00</span></div>
+          </div>
+          <div class="fullControls">
+            <button id="fullMode" class="plain" aria-label="切换播放模式"></button>
+            <button id="fullPrev" class="plain" aria-label="上一首" disabled><svg><use href="#glyph-prev" /></svg></button>
+            <button id="fullToggle" class="round" aria-label="播放" disabled></button>
+            <button id="fullNext" class="plain" aria-label="下一首" disabled><svg><use href="#glyph-next" /></svg></button>
+          </div>
+        </div>
+      </div>
+    </section>
+    <script src="lyrics.js"></script>
+    <script src="player.js"></script>
+  </body>
+</html>

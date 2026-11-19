@@ -22,4 +22,8 @@
     // background: #fff;
     // overflow: hidden;
   }
+  :global(.desktop) .view {
+    min-height: 0;
+    overflow: hidden;
+  }
 </style>

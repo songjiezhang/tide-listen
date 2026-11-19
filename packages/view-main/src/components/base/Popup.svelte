@@ -154,7 +154,7 @@
     max-height: 250px;
     pointer-events: none;
     background-color: var(--color-content-background);
-    border-radius: 4px;
+    border-radius: @radius-border;
     opacity: 0;
     filter: drop-shadow(0 0 3px rgb(0 0 0 / 12%));
     transform: scale(0.8);

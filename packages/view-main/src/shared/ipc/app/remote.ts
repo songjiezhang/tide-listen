@@ -37,14 +37,6 @@ export default {
       key,
       extId
     )
-      .then((result) => {
-        console.log('result', result)
-        return result
-      })
-      .catch((err) => {
-        console.log('err', err)
-        throw err
-      })
   },
   async showOpenBox(key, extId, options) {
     let ext = extensionState.extensionList.find((ext) => ext.id === extId)

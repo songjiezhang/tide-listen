@@ -1,0 +1,38 @@
+plugins { id 'com.android.application' version '8.9.2' }
+
+android {
+    namespace 'io.github.anylisten.midnight'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'io.github.anylisten.midnight'
+        minSdk 23
+        targetSdk 35
+        versionCode 10
+        versionName '0.11.0'
+    }
+    flavorDimensions 'display'
+    productFlavors {
+        phone {
+            dimension 'display'
+            resValue 'string', 'app_name', 'Any Listen'
+        }
+        dashboard {
+            dimension 'display'
+            applicationIdSuffix '.car'
+            resValue 'string', 'app_name', 'Any Listen 车机'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    buildFeatures { buildConfig true }
+}
+
+dependencies {
+    implementation 'androidx.core:core:1.9.0'
+    implementation 'androidx.media3:media3-exoplayer:1.7.1'
+    implementation 'androidx.media3:media3-session:1.7.1'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'wang.harlon.quickjs:wrapper-android:3.2.3'
+}

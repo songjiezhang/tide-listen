@@ -82,4 +82,26 @@
       padding-right: 10px;
     }
   }
+  :global(.desktop) {
+    .player {
+      flex: none;
+      height: clamp(4.25rem, 10vh, 5rem);
+      margin: var(--shell-gap);
+      border-radius: 1.75rem;
+    }
+    .bg {
+      background-color: var(--desktop-dock, var(--panel-surface));
+      border: 1px solid var(--color-border);
+      border-radius: inherit;
+      box-shadow: 0 3px 12px rgb(0 0 0 / 7%);
+      opacity: 1;
+    }
+    .player-inner {
+      padding-inline: 6px;
+      border-radius: inherit;
+      > :global(.progress) {
+        margin-inline: var(--radius-panel);
+      }
+    }
+  }
 </style>

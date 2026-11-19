@@ -2,15 +2,27 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import vm from 'node:vm'
 
+import { LX_SOURCE_LOADER, LX_SOURCE_MAX_ENABLED } from '@any-listen/common/command'
 import { EXTENSION } from '@any-listen/common/constants'
 import { generateId } from '@any-listen/common/utils'
 import { joinPath, normalizePath } from '@any-listen/nodejs'
 
+import { i18n } from '../../../i18n'
 import { sendIsolateContextMessage } from '../preloadFuncs'
 import { contextState } from '../state'
 
-const handleCreateIsolateFuncs = (extension: AnyListen.Extension.Extension) => {
-  const MAX_ISOLATE_CONTEXTS = 5
+interface Probe {
+  onMessage: (message: string) => void
+}
+
+const handleCreateIsolateFuncs = (extension: AnyListen.Extension.Extension, probe?: Probe) => {
+  const isDesktopLoader = !!import.meta.env.VITE_IS_DESKTOP && extension.id === LX_SOURCE_LOADER && !probe
+  const maxContexts = isDesktopLoader ? LX_SOURCE_MAX_ENABLED : 5
+  const pendingUrls = new Map<string, Map<string, NodeJS.Timeout>>()
+  const clearPendingUrls = (id: string) => {
+    for (const timer of pendingUrls.get(id)?.values() ?? []) clearTimeout(timer)
+    pendingUrls.delete(id)
+  }
 
   const timeouts = new Map<string, Map<string, ['timeout' | 'interval', NodeJS.Timeout]>>()
   const DIR_PREFIXES = [EXTENSION.storageDirPrefix, EXTENSION.extensionDirPrefix] as const
@@ -48,8 +60,8 @@ const handleCreateIsolateFuncs = (extension: AnyListen.Extension.Extension) => {
     contextTimeouts.clear()
   }
   const onExtensionDestroyed = () => {
-    const contexts = isolateContexts.get(extension.id)
-    if (contexts) isolateContexts.clear()
+    for (const id of pendingUrls.keys()) clearPendingUrls(id)
+    isolateContexts.clear()
     if (timeouts.size) {
       for (const id of timeouts.keys()) clearContextTimeouts(id)
       timeouts.clear()
@@ -64,19 +76,29 @@ const handleCreateIsolateFuncs = (extension: AnyListen.Extension.Extension) => {
   }
   return {
     async createIsolateContext() {
-      if (isolateContexts.size >= MAX_ISOLATE_CONTEXTS) {
-        throw new Error(`Maximum number of isolate contexts (${MAX_ISOLATE_CONTEXTS}) reached for extension ${extension.id}`)
+      if (isolateContexts.size >= maxContexts) {
+        throw new Error(`Maximum number of isolate contexts (${maxContexts}) reached for extension ${extension.id}`)
       }
-      listenDestroyedEvent()
+      if (!probe) listenDestroyedEvent()
       const id = generateId()
+      if (isDesktopLoader) pendingUrls.set(id, new Map())
       const context = vm.createContext(
         {
           hostObj: {
             onmessage(message: string) {
               if (typeof message !== 'string') throw new Error('Illegal message type')
-              sendIsolateContextMessage(extension.id, id, message)
+              const pending = pendingUrls.get(id)
+              if (pending?.size && message.startsWith('[1,')) {
+                const packet = JSON.parse(message) as unknown[]
+                if (typeof packet[1] === 'string') {
+                  clearTimeout(pending.get(packet[1]))
+                  pending.delete(packet[1])
+                }
+              }
+              if (probe) probe.onMessage(message)
+              else sendIsolateContextMessage(extension.id, id, message)
             },
-            runTimeout(id: string, type: 'timeout' | 'interval', delay: number) {
+            runTimeout(timerId: string, type: 'timeout' | 'interval', delay: number) {
               if (delay < 0) delay = 0
               if (delay > 0x7fffffff) delay = 0x7fffffff
               let contextTimeouts = timeouts.get(id)
@@ -91,27 +113,27 @@ const handleCreateIsolateFuncs = (extension: AnyListen.Extension.Extension) => {
               switch (type) {
                 case 'timeout':
                   timeout = setTimeout(() => {
-                    contextTimeouts.delete(id)
+                    contextTimeouts.delete(timerId)
                     const contextInfo = isolateContexts.get(id)
                     if (!contextInfo) return
-                    contextInfo.contextObj.tiggerTimeout(id, 'timeout')
+                    contextInfo.contextObj.tiggerTimeout(timerId, 'timeout')
                   }, delay)
-                  contextTimeouts.set(id, ['timeout', timeout])
+                  contextTimeouts.set(timerId, ['timeout', timeout])
                   break
                 case 'interval':
                   timeout = setInterval(() => {
                     const contextInfo = isolateContexts.get(id)
                     if (!contextInfo) return
-                    contextInfo.contextObj.tiggerTimeout(id, 'interval')
+                    contextInfo.contextObj.tiggerTimeout(timerId, 'interval')
                   }, delay)
-                  contextTimeouts.set(id, ['interval', timeout])
+                  contextTimeouts.set(timerId, ['interval', timeout])
                   break
               }
             },
-            clearTimeout(id: string) {
+            clearTimeout(timerId: string) {
               const contextTimeouts = timeouts.get(id)
               if (!contextTimeouts) return
-              const timeout = contextTimeouts.get(id)
+              const timeout = contextTimeouts.get(timerId)
               if (!timeout) return
               switch (timeout[0]) {
                 case 'timeout':
@@ -121,7 +143,7 @@ const handleCreateIsolateFuncs = (extension: AnyListen.Extension.Extension) => {
                   clearInterval(timeout[1])
                   break
               }
-              contextTimeouts.delete(id)
+              contextTimeouts.delete(timerId)
             },
           },
         },
@@ -215,11 +237,24 @@ const handleCreateIsolateFuncs = (extension: AnyListen.Extension.Extension) => {
     async sendMessageToIsolateContext(contextId: string, message: string) {
       if (typeof message !== 'string') throw new Error('Illegal message type')
       const contextInfo = getIsolateContextInfo(contextId)
+      const pending = pendingUrls.get(contextId)
+      // The loader retries on a rejected musicUrl RPC. Give a silent source the same path.
+      if (pending && message.startsWith('[0,"getMusicUrl_')) {
+        const packet = JSON.parse(message) as unknown[]
+        const key = packet[1]
+        if (typeof key === 'string' && Array.isArray(packet[2]) && packet[2].length === 1 && packet[2][0] === 'getMusicUrl') {
+          clearTimeout(pending.get(key))
+          pending.set(key, setTimeout(() => {
+            pending.delete(key)
+            sendIsolateContextMessage(extension.id, contextId, JSON.stringify([1, key, { message: i18n.t('lx_source_timeout') }]))
+          }, 25000))
+        }
+      }
       contextInfo.contextObj.onmessage(message)
     },
     async runInIsolateContext(contextId: string, code: string) {
       const contextInfo = getIsolateContextInfo(contextId)
-      vm.runInContext(code, contextInfo.context)
+      vm.runInContext(code, contextInfo.context, probe ? { timeout: 3000 } : undefined)
     },
     async runFileInIsolateContext(contextId: string, filePath: string) {
       const contextInfo = getIsolateContextInfo(contextId)
@@ -249,15 +284,16 @@ const handleCreateIsolateFuncs = (extension: AnyListen.Extension.Extension) => {
       if (!contextInfo) {
         throw new Error(`Isolate context with id ${contextId} not found for extension ${extension.id}`)
       }
+      clearPendingUrls(contextId)
       isolateContexts.delete(contextId)
       clearContextTimeouts(contextId)
     },
   } as const
 }
 
-export const createIsolateFuncs = (extension: AnyListen.Extension.Extension) => {
+export const createIsolateFuncs = (extension: AnyListen.Extension.Extension, probe?: Probe) => {
   if (!extension.grant.includes('isolate_context')) {
     return {} as unknown as ReturnType<typeof handleCreateIsolateFuncs>
   }
-  return handleCreateIsolateFuncs(extension)
+  return handleCreateIsolateFuncs(extension, probe)
 }

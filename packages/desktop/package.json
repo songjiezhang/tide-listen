@@ -1,9 +1,9 @@
 {
   "name": "desktop",
-  "version": "0.10.1-beta.4",
+  "version": "0.11.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/any-listen/any-listen-desktop.git"
+    "url": "git+https://github.com/songjiezhang/mylisten-midnight.git"
   },
   "main": "build-config/vite.config.ts",
   "scripts": {

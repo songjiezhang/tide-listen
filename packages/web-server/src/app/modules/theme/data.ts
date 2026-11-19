@@ -52,7 +52,7 @@ export const getTheme = () => {
   // themeId = 'naruto'
   // themeId = 'pink'
   // themeId = 'black'
-  let theme = themes.find((theme) => theme.id == themeId)
+  let theme: AnyListen.Theme | undefined = themes.find((theme) => theme.id == themeId)
   if (!theme) {
     userThemes = getStore(STORE_NAMES.THEME).get('themes') ?? []
     theme = userThemes.find((theme) => theme.id == themeId)

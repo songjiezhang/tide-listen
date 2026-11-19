@@ -83,22 +83,24 @@
   .control {
     display: flex;
     flex: none;
-    align-self: flex-start;
-    height: 30px;
+    gap: 4px;
+    align-self: center;
+    margin-inline: 12px;
 
     .btn {
       position: relative;
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 46px;
-      height: 30px;
+      width: 32px;
+      height: 32px;
       // outline: none;
       padding: 1px;
       color: var(--color-font-label);
       cursor: pointer;
       background: none;
       border: none;
+      border-radius: 50%;
       transition: background-color 0.2s ease-in-out;
       // &.active {
       //   background-color: var(--color-button-background-hover);

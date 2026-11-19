@@ -20,7 +20,7 @@
       scrollListTo(mInfo.listId, mInfo.source, mInfo.musicInfo)
     }}
   >
-    <Image decoding="auto" loading="eager" src={pic} />
+    <Image decoding="auto" loading="eager" src={pic} artworkKey={$musicInfo.id} />
   </button>
 </div>
 

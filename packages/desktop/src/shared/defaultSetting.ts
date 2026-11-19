@@ -2,6 +2,8 @@ import defaultSetting from '@any-listen/common/defaultSetting'
 // import os from 'node:os'
 // import path from 'node:path'
 
+defaultSetting['theme.id'] = 'midnight'
+
 if (import.meta.env.VITE_IS_WINDOWS) {
   defaultSetting['tray.themeId'] = -1
   defaultSetting['playDetail.coverStyle'] = 'square'

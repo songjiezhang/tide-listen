@@ -1,0 +1,6 @@
+The LX Music mobile custom-source preload and AES/RSA helpers are from lyswhut/lx-music-mobile, licensed under Apache-2.0. The Android host integrates the preload with Media3. The interface uses the Midnight theme from any-listen/any-listen.
+
+The bundled playlist and lyric modules are adapted from any-listen/any-listen-extension-online-metadata v0.4.9 (Apache-2.0), with he v1.2.0 (MIT). The Android host supplies the network and cryptography interfaces used by those modules.
+
+Any Listen Midnight is an unofficial, non-commercial modification by songjiezhang, 2026-11-20. Corresponding source, change history and build instructions: https://github.com/songjiezhang/mylisten-midnight . Any Listen's custom license and non-commercial terms are in Any-Listen.txt. Original project: https://github.com/any-listen/any-listen .
+LX Music Mobile additionally publishes its project terms at https://github.com/lyswhut/lx-music-mobile#项目协议 .

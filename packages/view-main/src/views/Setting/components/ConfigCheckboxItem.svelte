@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { LX_SOURCE_COMMANDS, LX_SOURCE_MAX_ENABLED } from '@any-listen/common/command'
   import Checkbox from '@/components/base/Checkbox.svelte'
   import TitleContent from './TitleContent.svelte'
   import Btn from '@/components/base/Btn.svelte'
@@ -16,11 +17,16 @@
     onchange: (value: string, checked: boolean) => void
     onremove: (value: string) => Promise<void>
   } = $props()
-  // let id = $derived(`${name}_${desc}_${f}`)
-  // console.log(item)
-  let disabled = $derived(
-    item.type == 'configCheckboxMultiple' && item.max != null && item.value != null && item.value.length >= item.max
-  )
+  const linkedSources = $derived(import.meta.env.VITE_IS_DESKTOP && item.field === 'enabledScripts' && item.actionCommands?.includes(LX_SOURCE_COMMANDS.add))
+  const hasLink = (row: AnyListen.Extension.ConfigEnum) => !!(row.raw as { sourceUrl?: string } | null)?.sourceUrl
+  const enabledIds = $derived(Array.isArray(item.value) ? item.value : [])
+  const visibleRows = $derived.by(() => {
+    if (!linkedSources) return item.enum
+    const rank = (id: string) => enabledIds.includes(id) ? enabledIds.indexOf(id) : enabledIds.length
+    return [...item.enum].sort((a, b) => rank(a.value) - rank(b.value))
+  })
+  const maximum = $derived(linkedSources ? LX_SOURCE_MAX_ENABLED : item.type === 'configCheckboxMultiple' ? item.max : null)
+  const disabled = $derived(maximum != null && enabledIds.length >= maximum)
 </script>
 
 {#snippet CheckBoxItem(
@@ -38,6 +44,21 @@
         {onchange}
         disabled={!checked && disabled}
       />
+      {#if linkedSources}
+        {#if checked}
+          <span>{$t('lx_source_priority', { rank: enabledIds.indexOf(checkboxItem.value) + 1 })}</span>
+          {#if enabledIds.indexOf(checkboxItem.value) > 0}
+            <Btn min onclick={async () => executeCommand(LX_SOURCE_COMMANDS.up, checkboxItem.value)}>{$t('lx_source_up')}</Btn>
+          {/if}
+          {#if enabledIds.indexOf(checkboxItem.value) < enabledIds.length - 1}
+            <Btn min onclick={async () => executeCommand(LX_SOURCE_COMMANDS.down, checkboxItem.value)}>{$t('lx_source_down')}</Btn>
+          {/if}
+        {/if}
+        {#if hasLink(checkboxItem)}
+          <Btn min onclick={async () => executeCommand(LX_SOURCE_COMMANDS.update, checkboxItem.value)}>{$t('lx_link_update')}</Btn>
+        {/if}
+        <Btn min onclick={async () => executeCommand(LX_SOURCE_COMMANDS.bind, checkboxItem.value)}>{$t(hasLink(checkboxItem) ? 'lx_link_edit' : 'lx_link_bind')}</Btn>
+      {/if}
       {#if removeable}
         <Btn
           min
@@ -55,9 +76,9 @@
   </div>
 {/snippet}
 
-<TitleContent name={item.name} desc={item.description}>
+<TitleContent name={item.name} desc={linkedSources ? $t('lx_source_order_help', { count: LX_SOURCE_MAX_ENABLED }) : item.description}>
   <div class="settings-item-config-checkbox">
-    {#each item.enum as enumItem, idx (idx)}
+    {#each visibleRows as enumItem, idx (linkedSources ? enumItem.value : idx)}
       {@render CheckBoxItem(enumItem, item.removeable ?? false, item.value?.includes(enumItem.value) ?? false, (checked) => {
         onchange(enumItem.value, checked)
       })}
@@ -105,7 +126,7 @@
 
     .settings-item-config-checkbox-item-content {
       display: flex;
-      flex-flow: row nowrap;
+      flex-flow: row wrap;
       gap: 10px;
       align-items: center;
       margin-bottom: 3px;

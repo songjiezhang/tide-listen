@@ -1,9 +1,13 @@
 import { commandEvent } from '@any-listen/app/modules/command/event'
-import { MAIN_ALL_COMMANDS, VIEW_MAIN_ALL_COMMANDS } from '@any-listen/common/command'
+import { workers } from '@any-listen/app/modules/worker'
+import { isLxSourceCommand, MAIN_ALL_COMMANDS, VIEW_MAIN_ALL_COMMANDS } from '@any-listen/common/command'
 
 import { hotKeyEvent, hotKeyState } from './hotKey'
 
 export const executeCommand = async (command: string, ...args: unknown[]) => {
+  if (isLxSourceCommand(command)) {
+    return workers.extensionService.manageLinkedLxSource(command, typeof args[0] === 'string' ? args[0] : undefined)
+  }
   if (MAIN_ALL_COMMANDS.includes(command as (typeof MAIN_ALL_COMMANDS)[number])) {
     return commandEvent.mainCommand(command as (typeof MAIN_ALL_COMMANDS)[number], ...args)
   }

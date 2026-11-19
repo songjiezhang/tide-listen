@@ -18,7 +18,7 @@
 </script>
 
 <div class="header">
-  <div class="num" style={`width:${picwidth}px;`}>
+  <div class="num" style:width={import.meta.env.VITE_IS_DESKTOP ? undefined : `${picwidth}px`}>
     {#if multimode}
       <Checkbox
         arialabel={$t('select_all')}
@@ -33,10 +33,10 @@
       #
     {/if}
   </div>
-  <span style="flex: auto;">{$t('music_name')}</span>
-  <span style="width: 22%;">{$t('music_singer')}</span>
-  <span style="width: 22%;">{$t('music_album')}</span>
-  <span style="width: 9%;">{$t('music_time')}</span>
+  <span class="song">{$t('music_name')}</span>
+  <span>{$t('music_singer')}</span>
+  <span>{$t('music_album')}</span>
+  <span>{$t('music_time')}</span>
 </div>
 
 <style lang="less">
@@ -56,6 +56,17 @@
       font-size: 14px;
     }
   }
+  :global(.web) .header {
+    .song {
+      flex: auto;
+    }
+    > span:not(.song) {
+      width: 22%;
+    }
+    > span:last-child {
+      width: 9%;
+    }
+  }
   .num {
     .nobreak();
     .center();
@@ -64,5 +75,21 @@
     align-items: center;
     justify-content: center;
     // color: var(--color-font-label);
+  }
+  :global(.desktop) .header {
+    display: grid;
+    grid-template-columns: var(--track-columns);
+    column-gap: 8px;
+    height: 32px;
+    padding-inline: 12px;
+    margin: 0 var(--list-inset) 4px;
+    color: var(--color-font-label);
+    border-bottom: 1px solid var(--color-border);
+    .song {
+      grid-column: span 2;
+    }
+    span:last-child {
+      text-align: right;
+    }
   }
 </style>

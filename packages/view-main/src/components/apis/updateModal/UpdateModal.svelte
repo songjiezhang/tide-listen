@@ -38,7 +38,7 @@
         release: 'https://github.com/any-listen/any-listen-web-server/releases',
       }
     : {
-        release: 'https://github.com/any-listen/any-listen-desktop/releases',
+        release: 'https://github.com/songjiezhang/mylisten-midnight/releases',
       }
 
   let disabledIgnoreFailBtn = $state(false)

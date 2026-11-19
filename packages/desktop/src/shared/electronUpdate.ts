@@ -52,13 +52,8 @@ export const initUpdate = (_update: Update) => {
 }
 
 export const checkUpdate = async (allowPrerelease: boolean) => {
-  // TODO win 7 不支持更新
-  // if (!isWin || !process.arch.includes('arm')) {
   autoUpdater.allowPrerelease = allowPrerelease
-  await autoUpdater.checkForUpdates()
-  // } else {
-  //   update.emit('error', new Error('Windows ARM is not supported'))
-  // }
+  return autoUpdater.checkForUpdates()
 }
 
 export const downloadUpdate = async () => {

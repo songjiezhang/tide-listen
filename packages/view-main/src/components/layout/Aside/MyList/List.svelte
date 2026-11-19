@@ -11,8 +11,9 @@
   import { sortable } from '@/shared/compositions/sortable.svelte'
   import { updateUserListPosition } from './action'
   // console.log(params)
-  const listItemHeight = useListItemHeight(3.2)
-  const picStyle = $derived(`height:${listItemHeight.val * 0.64}px; width:${listItemHeight.val * 0.64}px;`)
+  const listItemHeight = useListItemHeight(import.meta.env.VITE_IS_DESKTOP ? 3.75 : 3.2)
+  const coverSize = $derived(listItemHeight.val * (import.meta.env.VITE_IS_DESKTOP ? 2 / 3 : 0.64))
+  const picStyle = $derived(`height:${coverSize}px; width:${coverSize}px;`)
   // const picStyle = $derived(`height:${listItemHeight.val * 0.5}px;`)
 
   let menu: ComponentExports<typeof Menu>
@@ -58,7 +59,6 @@
             <ListItem
               listInfo={item}
               active={activeIndex == index}
-              {index}
               {picStyle}
               oncontextmenu={(event) => {
                 event.preventDefault()
@@ -101,5 +101,8 @@
   .tip {
     align-items: center;
     justify-content: center;
+  }
+  :global(.desktop) .list-item {
+    padding: 0 0 6px;
   }
 </style>

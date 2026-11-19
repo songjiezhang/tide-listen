@@ -43,13 +43,19 @@
 
 <div class="header">
   <div class="left">
-    <Image src={listinfo.pic} icon={listinfo.picIcon} />
+    <Image src={listinfo.pic} icon={listinfo.picIcon} artworkKey={listinfo.id} />
   </div>
   <div class="right">
     <div class="info">
-      <h3 class="title">{listinfo.name}</h3>
+      <h3 class="title" title={listinfo.name}>{listinfo.name}</h3>
       <div class="info-item">
-        <span><SvgIcon name="music" />{musiccount}</span>
+        <span>
+          {#if import.meta.env.VITE_IS_DESKTOP}
+            {$t('track_count', { num: musiccount })}
+          {:else}
+            <SvgIcon name="music" />{musiccount}
+          {/if}
+        </span>
         {#if listinfo.playCount}
           <span><SvgIcon name="headphones" />{listinfo.playCount}</span>
         {/if}
@@ -62,12 +68,12 @@
     </div>
     <div class="control-btns">
       <div class="btns">
-        <Btn disabled={!musiccount || disabled} icontext onclick={onplay}>
+        <Btn class={['play-all']} disabled={!musiccount || disabled} icontext onclick={onplay}>
           <SvgIcon name="play" />
           {$t('play_all')}
         </Btn>
         <Btn disabled={!musiccount || disabled} icontext onclick={onplayrandom}>
-          <SvgIcon name="list-random" />
+          <SvgIcon name={import.meta.env.VITE_IS_DESKTOP ? 'toolbar-shuffle' : 'list-random'} />
           {$t('play_random')}
         </Btn>
         {#if source !== 'local' && saveable}
@@ -97,17 +103,17 @@
       </div>
       <div class="btns">
         <Btn outline={!multimode} icon onclick={onmulti} aria-label={multimode ? $t('batch_select_exit') : $t('batch_select')}>
-          <SvgIcon name="multiple" />
+          <SvgIcon name={import.meta.env.VITE_IS_DESKTOP ? 'toolbar-select' : 'multiple'} />
         </Btn>
         <Btn outline={!finding} icon onclick={onfind} aria-label={finding ? $t('find_music_exit') : $t('find_music')}>
-          <SvgIcon name="search" />
+          <SvgIcon name={import.meta.env.VITE_IS_DESKTOP ? 'toolbar-find' : 'search'} />
         </Btn>
         {#if source === 'local'}
           <Btn disabled={!musiccount} outline icon onclick={onduplicate} aria-label={$t('duplicate_music')}>
-            <SvgIcon name="duplicate" />
+            <SvgIcon name={import.meta.env.VITE_IS_DESKTOP ? 'toolbar-copies' : 'duplicate'} />
           </Btn>
           <Btn disabled={!musiccount} outline icon onclick={onsort} aria-label={$t('sort_music')}>
-            <SvgIcon name="sort" />
+            <SvgIcon name={import.meta.env.VITE_IS_DESKTOP ? 'toolbar-order' : 'sort'} />
           </Btn>
         {/if}
       </div>
@@ -182,5 +188,90 @@
     // :global(.btn) {
     //   margin-right: 10px;
     // }
+  }
+  :global(.desktop) {
+    .header {
+      gap: clamp(1rem, 2vw, 1.5rem);
+      padding: 0 var(--page-inset) clamp(0.75rem, 2vh, 1.25rem);
+    }
+    .left {
+      flex: none;
+      width: clamp(5rem, min(13vw, 20vh), 10rem);
+      height: auto;
+      aspect-ratio: 1;
+
+      :global(.pic) {
+        border-radius: clamp(0.875rem, 2vw, 1.5rem);
+        box-shadow: none;
+      }
+    }
+    .right {
+      justify-content: flex-end;
+      min-width: 0;
+      padding: 0;
+    }
+    .title {
+      .mixin-ellipsis-1();
+
+      font-size: clamp(1.5rem, 2.7vw, 2.125rem);
+      font-weight: 700;
+      line-height: 1.2;
+      color: var(--color-font);
+    }
+    .info-item {
+      padding-top: 6px;
+      font-variant-numeric: tabular-nums;
+      color: var(--color-font-label);
+    }
+    .control-btns {
+      gap: 5px;
+      margin-top: clamp(0.5rem, 3vh, 1.5rem);
+
+      .btns {
+        gap: clamp(0.25rem, 0.7vw, 0.625rem);
+      }
+      :global(.btn) {
+        --color-button-font: var(--color-font);
+        --color-button-background: color-mix(in srgb, var(--color-font) 8%, transparent);
+
+        border-radius: 100vmax;
+      }
+      :global(.btn.icontext) {
+        gap: 8px;
+        min-height: 2.75rem;
+        padding: 0 1.25rem;
+        font-weight: 600;
+      }
+      :global(.btn.icon) {
+        --size: 1.875rem;
+
+        color: var(--color-font-label);
+      }
+      :global(.play-all) {
+        color: white;
+        background: var(--action-fill);
+        box-shadow: 0 3px 10px var(--color-primary-alpha-800);
+      }
+      :global(.play-all:hover:not(:disabled)) {
+        filter: brightness(1.12);
+      }
+    }
+
+    @media (width <= 920px), (height <= 540px) {
+      .header {
+        gap: 12px;
+        align-items: center;
+      }
+      .left {
+        width: 5rem;
+      }
+      .control-btns {
+        margin-top: 6px;
+        :global(.btn.icontext) {
+          min-height: 2rem;
+          padding-inline: 0.7rem;
+        }
+      }
+    }
   }
 </style>

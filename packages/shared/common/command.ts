@@ -1,3 +1,16 @@
+export const LX_SOURCE_LOADER = 'lx-api-source-loader'
+export const LX_SOURCE_MAX_ENABLED = 5
+export const LX_SOURCE_COMMANDS = {
+  add: `${LX_SOURCE_LOADER}:addRemoteSource`,
+  bind: 'desktop.lxSource.bind',
+  update: 'desktop.lxSource.update',
+  up: 'desktop.lxSource.up',
+  down: 'desktop.lxSource.down',
+} as const
+
+export const isLxSourceCommand = (command: string): command is (typeof LX_SOURCE_COMMANDS)[keyof typeof LX_SOURCE_COMMANDS] =>
+  Object.values(LX_SOURCE_COMMANDS).some((value) => value === command)
+
 const VIEW_MAIN_DESKTOP_COMMANDS = [] as const
 const VIEW_MAIN_WEB_COMMANDS = ['logout', 'maximizeToggle'] as const
 const VIEW_MAIN_COMMON_COMMANDS = [
