@@ -4,33 +4,86 @@
 
 ## Docker 部署
 
-支持 Linux x64 和 ARM64。下载与客户端版本对应的源码，在 `sync-server/` 下创建 `.env`：
+### 下载哪些文件
+
+NAS 或 VPS 可以**只下载同步服务**。v0.13.0 的服务端文件在 GitHub Release 的附件里。
+
+| 文件 | 用途 |
+| --- | --- |
+| [独立部署包 `TideListen-Sync-Deploy-0.13.0.tar.gz`](https://github.com/songjiezhang/tide-listen/releases/download/v0.13.0/TideListen-Sync-Deploy-0.13.0.tar.gz) | 约 31 KB，包含同步服务、管理网页、Dockerfile、Compose 配置、测试和许可证。自行构建镜像时只需这个包。 |
+| [预构建镜像 `linux-amd64`](https://github.com/songjiezhang/tide-listen/releases/download/v0.13.0/TideListen-Sync-linux-amd64.tar.gz) · [预构建镜像 `linux-arm64`](https://github.com/songjiezhang/tide-listen/releases/download/v0.13.0/TideListen-Sync-linux-arm64.tar.gz) | `x86_64` 选 amd64，`aarch64` 选 arm64。用 `docker load` 导入。用 `docker run` 时只下载镜像即可，用 Compose 时再下载独立部署包取配置。 |
+
+GitHub 自动生成的 `Source code (zip)` 和 `Source code (tar.gz)` 是整仓归档，包含桌面和 Android 客户端源码。部署同步服务请选上表的附件。
+
+### 用 Docker Compose 部署
+
+解压独立部署包，进入包含 `compose.yaml` 的目录。
+
+```bash
+tar -xzf TideListen-Sync-Deploy-0.13.0.tar.gz
+cd TideListen-Sync-0.13.0/sync-server
+```
+
+在该目录创建 `.env`，把示例域名换成你的同步服务子域名，并将它解析到提供 HTTPS 的公网 IP。
 
 ```dotenv
 SYNC_DOMAIN=sync.example.com
 ```
 
-将子域名解析到对外提供 HTTPS 的公网 IP。使用以下命令构建镜像并创建第一个管理员。命令会提示输入密码，密码通过标准输入传给容器。
+镜像准备方式二选一。自行构建时运行 `docker compose build`。用预构建镜像时，导入与你的设备匹配的文件。下面以 amd64 为例，文件路径按实际下载位置填写。导入后的镜像名为 `tidelisten-sync:local`。
 
 ```bash
-docker compose build
+docker load -i TideListen-Sync-linux-amd64.tar.gz
+```
+
+仅在首次部署时创建管理员。在 Bash 中执行以下命令，密码通过标准输入传给容器。
+
+```bash
 read -rs -p '初始管理密码（至少 12 字符）: ' TIDE_INITIAL_PASSWORD
 printf '\n'
 printf '%s\n' "$TIDE_INITIAL_PASSWORD" | docker compose run --rm -T sync init admin
 unset TIDE_INITIAL_PASSWORD
 ```
 
-如使用 Release 中的预构建镜像，选对应架构的 `TideListen-Sync-linux-*.tar.gz`，运行 `docker load -i 文件名`，随后直接创建管理员。启动服务时可以加 `--no-build`。
-
-群晖已有反向代理时，配置 HTTPS 子域名转发到 `http://127.0.0.1:8472`，并运行 `docker compose up -d`。容器仅将服务端口映射到宿主机回环地址。群晖 Container Manager 也可按 `compose.yaml` 创建项目，初始化账号时需使用 NAS 终端。后端通过反向代理取连接 IP，反向代理应正确附加客户端地址。
-
-VPS 上可以使用预置的 Caddy 配置，在 DNS 指向服务器且 80、443 可达后运行：
+群晖已有 HTTPS 反向代理时，配置子域名转发到 `http://127.0.0.1:8472`，再启动服务。群晖 Container Manager 也可按 `compose.yaml` 创建项目，初始化账号时使用 NAS 终端。反向代理应正确附加客户端地址。
 
 ```bash
-docker compose -f compose.yaml -f compose.https.yaml up -d
+docker compose up -d --no-build
+```
+
+VPS 可使用部署包自带的 Caddy 配置。域名解析生效且 80、443 端口可达后运行：
+
+```bash
+docker compose -f compose.yaml -f compose.https.yaml up -d --no-build
 ```
 
 如更改回环端口，可在 `.env` 调整 `SYNC_LOCAL_PORT`，同时修改已有反向代理的目标端口。
+
+### 用 docker run 部署
+
+使用预构建镜像时，先执行上面的 `docker load`。自己构建时，在独立部署包的 `sync-server/` 目录执行 `docker build -t tidelisten-sync:local .`。首次部署创建管理员，然后用同一对数据卷和密钥卷启动容器。把 `SYNC_PUBLIC_URL` 换成你的 HTTPS 地址。
+
+```bash
+read -rs -p '初始管理密码（至少 12 字符）: ' TIDE_INITIAL_PASSWORD
+printf '\n'
+printf '%s\n' "$TIDE_INITIAL_PASSWORD" | docker run --rm -i \
+  -v tidelisten-sync-data:/data \
+  -v tidelisten-sync-secrets:/secrets \
+  tidelisten-sync:local init admin
+unset TIDE_INITIAL_PASSWORD
+```
+
+```bash
+docker run -d --name tidelisten-sync --restart unless-stopped \
+  -p 127.0.0.1:8472:8472 \
+  -e SYNC_PUBLIC_URL=https://sync.example.com \
+  -e SYNC_TRUST_PROXY=1 \
+  -v tidelisten-sync-data:/data \
+  -v tidelisten-sync-secrets:/secrets \
+  tidelisten-sync:local
+```
+
+将 HTTPS 反向代理的目标设为 `http://127.0.0.1:8472`。已有同步实例在升级或切换启动方式时，沿用原数据卷和密钥卷，直接启动服务。
 
 ## 网页与设备
 
