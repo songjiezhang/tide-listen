@@ -24,11 +24,15 @@ tar -xzf TideListen-Sync-Deploy-0.13.0.tar.gz
 cd TideListen-Sync-0.13.0/sync-server
 ```
 
-在该目录创建 `.env`，把示例域名换成你的同步服务子域名，并将它解析到提供 HTTPS 的公网 IP。
+在该目录创建 `.env`，填写访问管理网页的域名和宿主机映射端口。
 
 ```dotenv
 SYNC_DOMAIN=sync.example.com
+SYNC_LOCAL_PORT=18472
 ```
+
+- `SYNC_DOMAIN` 填浏览器实际访问的域名，例如 `sync.example.com`。Compose 将它拼成 `SYNC_PUBLIC_URL=https://sync.example.com`，服务用这个地址校验 `/admin` 的登录等写入请求来源。使用群晖或其他现有反向代理时，由代理处理证书和 HTTPS。
+- `SYNC_LOCAL_PORT` 填宿主机上空闲的端口。示例把 `127.0.0.1:18472` 映射到容器的 `8472`，因此同一宿主机上的反向代理应转发到 `http://127.0.0.1:18472`。省略此项时默认映射到宿主机的 `8472`。
 
 镜像准备方式二选一。自行构建时运行 `docker compose build`。用预构建镜像时，导入与你的设备匹配的文件。下面以 amd64 为例，文件路径按实际下载位置填写。导入后的镜像名为 `tidelisten-sync:local`。
 
@@ -45,23 +49,21 @@ printf '%s\n' "$TIDE_INITIAL_PASSWORD" | docker compose run --rm -T sync init ad
 unset TIDE_INITIAL_PASSWORD
 ```
 
-群晖已有 HTTPS 反向代理时，配置子域名转发到 `http://127.0.0.1:8472`，再启动服务。群晖 Container Manager 也可按 `compose.yaml` 创建项目，初始化账号时使用 NAS 终端。反向代理应正确附加客户端地址。
+群晖已有 HTTPS 反向代理时，将域名解析到群晖的公网入口，再把代理目标设为上面配置的宿主机端口。群晖 Container Manager 也可按 `compose.yaml` 创建项目，初始化账号时使用 NAS 终端。反向代理应正确附加客户端地址。
 
 ```bash
 docker compose up -d --no-build
 ```
 
-VPS 可使用部署包自带的 Caddy 配置。域名解析生效且 80、443 端口可达后运行：
+VPS 可使用部署包自带的 Caddy 配置。Caddy 同样使用 `SYNC_DOMAIN`，在 Docker 网络里直接转发到 `sync:8472`，宿主机映射端口只供宿主机上的代理或本机访问使用。域名解析生效且公网 80、443 端口可达后启动。
 
 ```bash
 docker compose -f compose.yaml -f compose.https.yaml up -d --no-build
 ```
 
-如更改回环端口，可在 `.env` 调整 `SYNC_LOCAL_PORT`，同时修改已有反向代理的目标端口。
-
 ### 用 docker run 部署
 
-使用预构建镜像时，先执行上面的 `docker load`。自己构建时，在独立部署包的 `sync-server/` 目录执行 `docker build -t tidelisten-sync:local .`。首次部署创建管理员，然后用同一对数据卷和密钥卷启动容器。把 `SYNC_PUBLIC_URL` 换成你的 HTTPS 地址。
+使用预构建镜像时，先执行上面的 `docker load`。自己构建时，在独立部署包的 `sync-server/` 目录执行 `docker build -t tidelisten-sync:local .`。首次部署创建管理员，然后用同一对数据卷和密钥卷启动容器。把 `SYNC_PUBLIC_URL` 换成浏览器访问的完整 HTTPS 地址，用 `-p` 指定宿主机映射端口。
 
 ```bash
 read -rs -p '初始管理密码（至少 12 字符）: ' TIDE_INITIAL_PASSWORD
@@ -75,7 +77,7 @@ unset TIDE_INITIAL_PASSWORD
 
 ```bash
 docker run -d --name tidelisten-sync --restart unless-stopped \
-  -p 127.0.0.1:8472:8472 \
+  -p 127.0.0.1:18472:8472 \
   -e SYNC_PUBLIC_URL=https://sync.example.com \
   -e SYNC_TRUST_PROXY=1 \
   -v tidelisten-sync-data:/data \
@@ -83,7 +85,7 @@ docker run -d --name tidelisten-sync --restart unless-stopped \
   tidelisten-sync:local
 ```
 
-将 HTTPS 反向代理的目标设为 `http://127.0.0.1:8472`。已有同步实例在升级或切换启动方式时，沿用原数据卷和密钥卷，直接启动服务。
+按上面的端口示例，将 HTTPS 反向代理的目标设为 `http://127.0.0.1:18472`。已有同步实例在升级或切换启动方式时，沿用原数据卷和密钥卷，直接启动服务。
 
 ## 网页与设备
 
