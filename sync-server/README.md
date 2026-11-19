@@ -4,7 +4,7 @@
 
 ## Docker 部署
 
-同步服务的 Docker Hub 镜像是 `zjuzsj/tide-listen-server:0.13.4`，覆盖 Linux amd64 和 arm64。桌面、Android 手机和车机从 v0.13.4 起根据版本变更同步。已配对的 v0.13.0 客户端可以继续连接。[Docker Hub 仓库](https://hub.docker.com/r/zjuzsj/tide-listen-server)
+同步服务的 Docker Hub 镜像是 `zjuzsj/tide-listen-server:0.13.5`，覆盖 Linux amd64 和 arm64。桌面、Android 手机和车机从 v0.13.4 起根据版本变更同步。已配对的 v0.13.0 客户端可以继续连接。[Docker Hub 仓库](https://hub.docker.com/r/zjuzsj/tide-listen-server)
 
 ### 配置 .env
 
@@ -47,7 +47,7 @@ docker run -d --name tidelisten-sync --restart unless-stopped \
   -e SYNC_TRUST_PROXY=1 \
   -v tidelisten-sync-data:/data \
   -v tidelisten-sync-secrets:/secrets \
-  zjuzsj/tide-listen-server:0.13.4
+  zjuzsj/tide-listen-server:0.13.5
 ```
 
 从已有部署切换启动方式时，把示例卷名换成原来的数据库卷和密钥卷。启动后访问 `https://sync.example.com/admin`，App 配对填写 `https://sync.example.com`。
@@ -72,7 +72,7 @@ v0.13.0 Release 里的独立部署包和预构建镜像使用该版本的手动�
       - ./secrets:/secrets
 ```
 
-只将镜像改为 `zjuzsj/tide-listen-server:0.13.4`，再执行：
+只将镜像改为 `zjuzsj/tide-listen-server:0.13.5`，再执行：
 
 ```bash
 docker compose up -d

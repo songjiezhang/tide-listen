@@ -505,6 +505,7 @@ async function webAccount(req, res, path, method, adminPortal) {
 }
 
 const staticAssets = {
+  '/favicon.png': ['favicon.png', 'image/png'],
   '/login': ['admin.html', 'text/html; charset=utf-8'],
   '/login/': ['admin.html', 'text/html; charset=utf-8'],
   '/admin': ['admin.html', 'text/html; charset=utf-8'],
@@ -516,7 +517,7 @@ async function handler(req, res) {
   res.setHeader('cache-control', 'no-store')
   res.setHeader('x-content-type-options', 'nosniff')
   res.setHeader('referrer-policy', 'no-referrer')
-  res.setHeader('content-security-policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+  res.setHeader('content-security-policy', "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
   const { pathname: path, searchParams } = new URL(req.url, origin)
   const method = req.method
   if (path === '/health' && method === 'GET') return json(res, { status: 'ok' })

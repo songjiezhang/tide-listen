@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -62,8 +62,15 @@ try {
   const home = await fetch(url, { redirect: 'manual' })
   assert.equal(home.status, 303)
   assert.equal(home.headers.get('location'), '/login')
-  assert.match((await request('/login')).data, /汐听/)
-  assert.match((await request('/admin')).data, /汐听/)
+  for (const portal of ['/login', '/admin']) {
+    const { data } = await request(portal)
+    assert.match(data, /汐听/)
+    assert.match(data, /rel="icon".*href="\/favicon\.png"/)
+  }
+  const favicon = await fetch(url + '/favicon.png')
+  assert.equal(favicon.status, 200)
+  assert.equal(favicon.headers.get('content-type'), 'image/png')
+  assert.deepEqual(Buffer.from(await favicon.arrayBuffer()), readFileSync(new URL('./favicon.png', import.meta.url)))
   await request('/admin/api/account', { status: 401 })
   await request('/login/api/account', { status: 401 })
 

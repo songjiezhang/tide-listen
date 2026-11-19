@@ -44,6 +44,7 @@ jobs:
         run: |
           curl --fail --silent http://127.0.0.1:8472/health
           curl --fail --silent http://127.0.0.1:8472/admin | grep -q '同步服务'
+          curl --fail --silent http://127.0.0.1:8472/favicon.png | cmp favicon.png -
           login() {
             curl -sS http://127.0.0.1:8472/admin/api/login \
               -H 'Origin: https://sync.example.com' -H 'Content-Type: application/json' \
@@ -102,7 +103,7 @@ jobs:
       cancel-in-progress: false
     env:
       IMAGE: docker.io/zjuzsj/tide-listen-server
-      VERSION: 0.13.4
+      VERSION: 0.13.5
     steps:
       - uses: actions/download-artifact@v4
         with:
