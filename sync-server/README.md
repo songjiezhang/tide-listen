@@ -62,6 +62,36 @@ docker compose -f compose.yaml -f compose.build.yaml up -d --build
 
 v0.13.0 Release 里的独立部署包和预构建镜像使用该版本的手动管理员初始化流程。[v0.13.0 部署说明](https://github.com/songjiezhang/tide-listen/blob/e23b3065dc63a817ec7e1e58bfd9661c3f909f24/sync-server/README.md#docker-部署)
 
+### 密钥目录权限排查
+
+如果容器日志出现 `EACCES: permission denied, open '/secrets/sources.key'`，先检查数据目录和密钥目录的挂载。下面以容器名 `tide-listen-server` 为例，按实际情况替换。
+
+```bash
+docker inspect tide-listen-server --format '{{.Config.User}}{{println}}{{range .Mounts}}{{println .Type .Source "->" .Destination "rw=" .RW}}{{end}}'
+```
+
+默认容器以 `node` 用户运行，UID 和 GID 均为 `1000`。`/data` 和 `/secrets` 都应为读写挂载，且该用户可写。使用群晖目录挂载时，为同步服务准备独立的数据目录和密钥目录。若检查显示 `rw=false`，先在 Compose 或 Container Manager 中改为读写，再用同一挂载位置重新创建容器。
+
+如果两处都是同步服务的专用读写挂载，容器用户为默认的 `node`，可以复用原挂载修正权限后启动原容器。命令只调整目录及已存在的数据库、SQLite 辅助文件和密钥的权限，保留文件内容。
+
+```bash
+docker stop tide-listen-server &&
+docker run --rm --user 0:0 --network none --volumes-from tide-listen-server \
+  --entrypoint sh zjuzsj/tide-listen-server:0.13.1 -ec '
+    chown 1000:1000 /data /secrets
+    chmod 700 /data /secrets
+    for f in /data/sync.sqlite /data/sync.sqlite-wal /data/sync.sqlite-shm /secrets/sources.key; do
+      if [ -f "$f" ]; then
+        chown 1000:1000 "$f"
+        chmod 600 "$f"
+      fi
+    done
+  ' &&
+docker start tide-listen-server
+```
+
+启动后检查最近的日志。如果 `chown` 返回 `Operation not permitted`，在 NAS 上检查挂载目录的 ACL 或存储权限。密钥与现有数据库应始终成对保留。
+
 ## 网页与设备
 
 1. 打开 `https://sync.example.com/admin`，使用初始化的管理员账号和密码登录。
