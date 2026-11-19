@@ -1,0 +1,26 @@
+:root { color-scheme: dark; font: 16px system-ui, "Microsoft YaHei", sans-serif; background: #101117; color: #f2eff9; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; }
+main { width: min(100% - 2rem, 65rem); margin: 2.5rem auto; }
+header, nav, .row { display: flex; gap: .7rem; align-items: center; flex-wrap: wrap; }
+header { justify-content: space-between; }
+h1 { margin: 0; font-size: clamp(1.7rem, 5vw, 2.15rem); }
+h1 span { color: #c7b7ff; }
+h2 { font-size: 1.2rem; margin: 0 0 .8rem; }
+p { line-height: 1.55; }
+#status { color: #d6c8ff; min-height: 1.5em; white-space: pre-wrap; }
+nav { margin-bottom: 1rem; }
+button { background: #302845; border: 1px solid #514669; border-radius: .7rem; font: inherit; color: inherit; padding: .55rem .9rem; cursor: pointer; }
+button:hover, button[aria-current=true] { background: #514077; }
+button:disabled { opacity: .6; cursor: wait; }
+input, select { width: 100%; padding: .6rem; border-radius: .55rem; border: 1px solid #49435a; background: #15131e; color: inherit; font: inherit; }
+input[type=checkbox] { width: auto; }
+label { display: grid; gap: .35rem; }
+form { display: grid; gap: .65rem; max-width: 32rem; }
+form button { justify-self: start; }
+.panel { background: #1b1a26; border: 1px solid #343045; border-radius: 1rem; padding: 1rem; margin-bottom: 1rem; }
+.entry { border-top: 1px solid #373249; padding: .7rem 0; }
+.entry span { flex: 1; min-width: 12rem; overflow-wrap: anywhere; }
+.dim { color: #b7adc8; }
+output { display: block; font-size: 1.35rem; color: #d6c8ff; overflow-wrap: anywhere; }

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>汐听 · 同步管理</title>
+<link rel="stylesheet" href="/admin/site.css">
+<script type="module" src="/admin/admin.js"></script>
+<body>
+<main>
+  <header><h1>汐听 <span>同步管理</span></h1><button id="logout" hidden>退出登录</button></header>
+  <p id="status" role="status"></p>
+  <form id="login" class="panel" hidden>
+    <h2>登录</h2>
+    <label>账号<input name="name" autocomplete="username" required></label>
+    <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
+    <button>登录</button>
+  </form>
+  <div id="dashboard" hidden>
+    <nav aria-label="管理页面"><button data-tab="devices">配对与设备</button><button data-tab="lists">我的列表</button><button data-tab="sources">音源</button><button data-tab="users">账号设置</button></nav>
+    <div id="content"></div>
+  </div>
+</main>
+</body>
+</html>

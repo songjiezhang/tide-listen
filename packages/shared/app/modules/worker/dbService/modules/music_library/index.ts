@@ -772,6 +772,15 @@ export const getAllListData = (): AnyListen.List.ListDataFull => {
   return buildListDataFull(lists)
 }
 
+export const listDataOverwriteIfUnchanged = (
+  expected: AnyListen.List.ListDataFull,
+  replacement: AnyListen.List.ListDataFull
+) => {
+  if (JSON.stringify(getAllListData()) !== JSON.stringify(expected)) return false
+  listDataOverwrite(replacement)
+  return true
+}
+
 export const getAllListDataMD5 = () => {
   return getListDataMD5(getAllListData())
 }

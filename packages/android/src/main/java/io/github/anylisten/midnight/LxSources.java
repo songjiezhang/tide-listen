@@ -80,6 +80,61 @@ final class LxSources {
     return list;
   }
 
+  synchronized JSONArray exportTideSources() throws JSONException {
+    JSONArray local = rows();
+    JSONArray result = new JSONArray();
+    for (int i = 0; i < local.length(); i++) {
+      JSONObject row = local.getJSONObject(i);
+      String script = prefs.getString(key(row.getString("id")), "");
+      if (!script.isEmpty())
+        result.put(obj("name", row.getString("name"), "url", row.optString("url"),
+            "enabled", row.optBoolean("enabled"), "script", script));
+    }
+    return result;
+  }
+
+  void installTideSources(Context context, JSONArray sources) throws Exception {
+    JSONArray before = exportTideSources();
+    JSONArray existing;
+    synchronized (this) { existing = rows(); }
+    JSONArray records = new JSONArray();
+    android.content.SharedPreferences.Editor editor = prefs.edit();
+    for (int i = 0; i < sources.length(); i++) {
+      JSONObject remote = sources.getJSONObject(i);
+      String script = remote.getString("script");
+      String url = remote.optString("url");
+      if (!url.isEmpty()) LxEngine.sourceUrl(url);
+      JSONObject previous = null;
+      for (int j = 0; j < existing.length(); j++) {
+        JSONObject row = existing.getJSONObject(j);
+        if (sameScript(script.trim(), row.getString("id"))) { previous = row; break; }
+      }
+      boolean enabled = remote.optBoolean("enabled");
+      JSONObject record = previous == null
+          ? obj("id", UUID.randomUUID().toString(), "revision", 1)
+          : new JSONObject(previous.toString());
+      if (enabled && !record.has("qualities")) {
+        JSONObject info = LxEngine.run(context, script, null, "auto");
+        record.put("platforms", info.getJSONArray("platforms")).put("qualities", info.getJSONObject("qualities"));
+      }
+      record.put("name", remote.getString("name")).put("version", LxEngine.tag(script, "version", ""))
+          .put("enabled", enabled).put("revision", record.optInt("revision") + 1);
+      if (url.isEmpty()) record.remove("url"); else record.put("url", url);
+      records.put(record);
+      editor.putString(key(record.getString("id")), script);
+    }
+    synchronized (this) {
+      if (!before.toString().equals(exportTideSources().toString()))
+        throw new IOException("本机音源已变更，请重新确认");
+      for (int i = 0; i < existing.length(); i++) {
+        String id = existing.getJSONObject(i).getString("id");
+        if (find(records, "id", id) < 0) editor.remove(key(id));
+      }
+      if (!editor.putString(ROWS, records.toString()).commit())
+        throw new IOException("未能保存服务器音源");
+    }
+  }
+
   String install(Context context, JSONObject expected, String script, String fallback, String link)
       throws Exception {
     return installScript(context, expected, script, fallback, link).message;

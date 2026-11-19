@@ -277,13 +277,19 @@ function sourceCards() {
     actions(item, '移除', 'removeSource') + '</div></article>').join('')
 }
 function settings() {
-  const syncTime = data.lastSync ? '上次同步 · ' + new Date(data.lastSync).toLocaleString() : data.dav ? '等待同步' : '尚未配置';
+  const syncTime = data.lastSync ? '上次同步 · ' + new Date(data.lastSync).toLocaleString() : data.syncConfigured ? '等待同步' : '尚未配置';
   return '<div class="pageTitle"><h1>设置</h1></div><div class="settingGroups"><section>' +
-    '<h2>同步</h2><div class="setting"><div><strong>WebDAV</strong><small>' + esc(syncTime) +
-    '</small></div>' + button('dav', '配置') + '</div>' +
-    '<div class="setting"><div><strong>歌单自动同步</strong><small>歌单修改会自动同步到其他设备</small></div>' +
-    '<span class="muted">' + (data.dav ? '已开启' : '配置后开启') + '</span></div>' +
-    (data.dav ? button('sync', data.syncing ? '正在同步…' : '立即同步', 'sync') : '') +
+    '<h2>同步</h2><div class="setting"><div><strong>汐听同步服务</strong><small>' +
+    esc(data.tide?.account ? data.tide.account + ' · ' + syncTime : '使用服务器地址和一次性配对码') +
+    '</small></div>' + (data.tide?.account ? button('tideDisconnect', '断开') : button('tidePair', '配对')) + '</div>' +
+    (data.tide?.account
+      ? '<div class="setting"><div><strong>同步洛雪 JS 音源</strong><small>' +
+        (data.tide.sources ? '已开启' : '默认关闭') + '</small></div>' +
+        button('tideSources:' + String(!data.tide.sources), data.tide.sources ? '关闭' : '开启') + '</div>' +
+        (data.tide.hasReview ? button('tideApprove', '审核服务器音源') : '')
+      : '<div class="setting"><div><strong>WebDAV</strong><small>' + esc(syncTime) +
+        '</small></div>' + button('dav', '配置') + '</div>') +
+    (data.syncConfigured ? button('sync', data.syncing ? '正在同步…' : '立即同步', 'sync') : '') +
     '<p id="status" role="status">' + esc(data.status) + '</p></section><section><h2>播放与显示</h2>' +
     selectOption('playMode', '播放顺序', modes) +
     selectOption('quality', '首选音质', { auto: '音源默认', '128k': '标准 128k', '320k': '高品质 320k', flac: '无损 FLAC' }) +
@@ -431,9 +437,9 @@ window.library = (update) => {
   document.body.classList.toggle('car', data.car)
   document.body.classList.toggle('largeControls', data.car && data.largeControls)
   const badge = el('syncBadge')
-  badge.hidden = !data.dav
+  badge.hidden = !data.syncConfigured
   badge.dataset.state = data.pending ? 'pending' : data.syncing ? 'sync' : ''
-  badge.querySelector('span').textContent = data.syncState || (data.pending ? '修改待同步' : data.lastSync ? 'WebDAV 已同步' : '等待同步')
+  badge.querySelector('span').textContent = data.syncState || (data.pending ? '修改待同步' : data.lastSync ? '歌单已同步' : '等待同步')
   if (listId && data.playlistReady && !data.playlists.some((list) => list.id === listId)) listId = ''
   draw()
 }
@@ -482,7 +488,8 @@ view.addEventListener('click', (event) => {
   } else if (item.do === 'add') app('add', listId)
   else if (item.do === 'delete') app('deleteList', listId)
   else if (item.do === 'save-online' && online) app('saveCatalog', { id: String(online.id), name: online.name, platform: online.platform })
-  else if (['dav', 'sync', 'source', 'updateSources', 'checkAppUpdate', 'projectSource'].includes(item.do)) app(item.do)
+  else if (item.do?.startsWith('tideSources:')) app('tideSources', item.do.slice('tideSources:'.length))
+  else if (['tidePair', 'tideDisconnect', 'tideApprove', 'dav', 'sync', 'source', 'updateSources', 'checkAppUpdate', 'projectSource'].includes(item.do)) app(item.do)
   else if (item.do === 'retry-options') {
     loadCatalog('options')
     draw()

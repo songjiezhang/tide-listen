@@ -27,7 +27,7 @@ import {
   getOnlineTags,
   initOnlineList,
 } from './onlineExtension'
-import { manageLinkedLxSource } from './linkedLxSources'
+import { exportTideSources, installTideSources, manageLinkedLxSource } from './linkedLxSources'
 import { resetI18n } from './onlineExtension/i18n'
 import {
   buildExtensionSettings,
@@ -44,6 +44,8 @@ registerErrorHandler()
 
 const extension = {
   manageLinkedLxSource,
+  exportTideSources,
+  installTideSources,
   downloadAndParseExtension,
   installExtension,
   loadLocalExtensions,

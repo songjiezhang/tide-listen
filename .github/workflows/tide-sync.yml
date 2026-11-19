@@ -1,0 +1,42 @@
+name: TideListen Sync
+
+on:
+  push:
+    paths:
+      - 'sync-server/**'
+      - '.github/workflows/tide-sync.yml'
+  pull_request:
+    paths:
+      - 'sync-server/**'
+      - '.github/workflows/tide-sync.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    defaults:
+      run:
+        working-directory: sync-server
+    env:
+      SYNC_DOMAIN: sync.example.com
+    steps:
+      - uses: actions/checkout@v6
+      - run: docker compose -f compose.yaml -f compose.https.yaml config --quiet
+      - run: docker compose build
+      - run: printf '%s\n' 'ci-fixture-admin-2026' | docker compose run --rm -T sync init admin
+      - run: docker compose up -d --wait
+      - run: |
+          curl --fail --silent http://127.0.0.1:8472/health
+          curl --fail --silent http://127.0.0.1:8472/admin | grep -q '同步管理'
+          docker compose exec -T sync node /app/server.mjs backup /data/ci.sqlite
+          docker compose cp sync:/data/ci.sqlite /tmp/tide-sync-ci.sqlite
+          test -s /tmp/tide-sync-ci.sqlite
+      - run: docker run --rm --volume "${PWD}:/suite:ro" --entrypoint node "$(docker compose images -q sync)" /suite/test.mjs
+      - if: always()
+        run: docker compose down -v

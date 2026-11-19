@@ -92,6 +92,8 @@ final class DesktopPlaylists {
   }
 
   private String account() {
+    String tide = TideSync.scope(settings);
+    if (!tide.isEmpty()) return tide;
     String address = settings.getString("dav", "");
     if (address.isEmpty()) return "";
     return address + "\n" + settings.getString("user", "");
@@ -142,7 +144,7 @@ final class DesktopPlaylists {
       if (loved.length() != 0) edits.put(obj("action", "add", "listId", "love", "rows", loved));
       save(raw, revision, edits, cache.edit().putBoolean("migrated-legacy", true));
     }
-    if (!scope.isEmpty() && !cache.getBoolean("adopted-device-journal", false)) {
+    if (!scope.isEmpty() && !scope.startsWith("tide\n") && !cache.getBoolean("adopted-device-journal", false)) {
       String offlineKey = key("");
       JSONObject offline = new JSONObject(cache.getString(offlineKey, "{}"));
       JSONArray deviceEdits = offline.optJSONArray("pending");
@@ -318,7 +320,7 @@ final class DesktopPlaylists {
 
   synchronized void saveOnline(String expectedScope, String name, String cover, JSONArray rows)
       throws Exception {
-    if (!expectedScope.equals(scopeId())) throw new IOException("WebDAV 账号已变更，请重新收藏");
+    if (!expectedScope.equals(scopeId())) throw new IOException("同步账号已变更，请重新收藏");
     create(name, cover, rows);
   }
 

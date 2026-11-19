@@ -6,6 +6,9 @@ import type { ExposeServerFunctions, ExposeClientFunctions } from '.'
 // 暴露给前端的方法
 export const createExposeSync = () => {
   return {
+    async tideSync() {
+      throw Error('桌面客户端专用同步设置')
+    },
     async getSyncState() {
       const webdavState = getSyncWebDAVState()
       return {

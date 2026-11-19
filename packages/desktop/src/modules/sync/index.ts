@@ -9,8 +9,10 @@ import {
 
 import { appEvent, appState } from '@/app'
 
+import { isTideSyncActive, startTideSync } from './tideSync'
+
 const init = (immediately?: boolean) => {
-  if (appState.appSetting['sync.webdav.enable']) {
+  if (!isTideSyncActive() && appState.appSetting['sync.webdav.enable']) {
     runWebDAVSyncTask(immediately)
   } else {
     cancelWebDAVSyncTask()
@@ -22,7 +24,8 @@ export const initSync = async () => {
       init()
     }
   })
-  appEvent.on('inited', () => {
+  appEvent.on('inited', async () => {
+    await startTideSync()
     init(true)
   })
 }
@@ -31,6 +34,7 @@ export const runSyncWebDAV = async (
   getListMergeMode: SyncWebDAVOptions['getListMergeMode'],
   getDislikeMergeMode: SyncWebDAVOptions['getDislikeMergeMode']
 ) => {
+  if (isTideSyncActive()) throw Error('请先断开汐听同步服务')
   return runSyncWebDAVOriginal(
     {
       url: appState.appSetting['sync.webdav.url'],

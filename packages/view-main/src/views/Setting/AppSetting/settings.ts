@@ -389,6 +389,9 @@ export const settings: SettingListSection[] = [
     // t('settings.dataSync')
     name: 'settings.dataSync',
     list: [
+      import.meta.env.VITE_IS_DESKTOP
+        ? { id: 'settings.dataSync.tide', type: 'component', component: async () => import('./DataSyncTide.svelte') }
+        : null,
       {
         id: 'settings.dataSync.webdav',
         type: 'component',

@@ -1,0 +1,395 @@
+import { createCipheriv, createDecipheriv, createHash, randomBytes, randomInt, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto'
+import { createServer } from 'node:http'
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { join, dirname } from 'node:path'
+import { DatabaseSync, backup } from 'node:sqlite'
+import { promisify } from 'node:util'
+
+const folder = process.env.SYNC_DATA || '/data'
+const secretFile = process.env.SYNC_KEY_FILE || '/secrets/sources.key'
+const local = process.env.SYNC_LOCAL_TEST === '1'
+const publicUrl = new URL(process.env.SYNC_PUBLIC_URL || (local ? 'http://127.0.0.1:8472' : 'https://sync.example.com'))
+if (publicUrl.protocol !== 'https:' && !local) throw Error('SYNC_PUBLIC_URL requires HTTPS')
+const origin = publicUrl.origin
+const scrypt = promisify(scryptCallback)
+const random = () => randomBytes(32).toString('base64url')
+const hash = (value) => createHash('sha256').update(value).digest('hex')
+const now = () => Math.floor(Date.now() / 1000)
+const day = 86400
+const limit = 24 * 1024 * 1024
+const [action, argument] = process.argv.slice(2)
+
+mkdirSync(folder, { recursive: true, mode: 0o700 })
+if (action === 'init' && !existsSync(secretFile)) {
+  if (existsSync(join(folder, 'sync.sqlite'))) throw Error('Restore the original sources.key with the database')
+  mkdirSync(dirname(secretFile), { recursive: true, mode: 0o700 })
+  writeFileSync(secretFile, randomBytes(32), { flag: 'wx', mode: 0o600 })
+}
+const key = readFileSync(secretFile)
+if (key.length !== 32) throw Error('Invalid sources.key')
+const db = new DatabaseSync(join(folder, 'sync.sqlite'))
+db.exec(`
+  PRAGMA journal_mode = WAL;
+  PRAGMA foreign_keys = ON;
+  PRAGMA busy_timeout = 5000;
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, password TEXT NOT NULL,
+    admin INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1
+  );
+  CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY, uid INTEGER NOT NULL REFERENCES users(id), expires INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS codes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE, uid INTEGER NOT NULL REFERENCES users(id), expires INTEGER NOT NULL, created INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS devices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, token TEXT NOT NULL UNIQUE, uid INTEGER NOT NULL REFERENCES users(id),
+    name TEXT NOT NULL, seen INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS libraries (
+    uid INTEGER NOT NULL REFERENCES users(id), kind TEXT NOT NULL, revision INTEGER NOT NULL,
+    data TEXT NOT NULL, PRIMARY KEY (uid, kind)
+  );
+  CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value INTEGER NOT NULL);
+  CREATE TABLE IF NOT EXISTS writes (
+    uid INTEGER NOT NULL REFERENCES users(id), kind TEXT NOT NULL, operation TEXT NOT NULL,
+    revision INTEGER NOT NULL, created INTEGER NOT NULL, PRIMARY KEY (uid, kind, operation)
+  );
+`)
+const sql = (query) => db.prepare(query)
+const fail = (status, message) => { throw Object.assign(new Error(message), { status }) }
+function tx(fn) {
+  db.exec('BEGIN IMMEDIATE')
+  try { const result = fn(); db.exec('COMMIT'); return result }
+  catch (error) { db.exec('ROLLBACK'); throw error }
+}
+
+async function passwordHash(password, salt = randomBytes(16).toString('hex')) {
+  const bytes = await scrypt(password, salt, 64, { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 })
+  return salt + ':' + bytes.toString('hex')
+}
+function validPassword(password) {
+  if (typeof password !== 'string' || password.length < 12 || password.length > 128) fail(400, '密码须为 12 至 128 个字符')
+  return password
+}
+function username(name) {
+  if (typeof name !== 'string' || !/^[a-zA-Z0-9_.-]{2,40}$/.test(name)) fail(400, '账号须为 2 至 40 个字母、数字或 ._-')
+  return name
+}
+function protect(value) {
+  const iv = randomBytes(12)
+  const cipher = createCipheriv('aes-256-gcm', key, iv)
+  const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()])
+  return Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString('base64')
+}
+function reveal(value) {
+  const bytes = Buffer.from(value, 'base64')
+  const cipher = createDecipheriv('aes-256-gcm', key, bytes.subarray(0, 12))
+  cipher.setAuthTag(bytes.subarray(12, 28))
+  return Buffer.concat([cipher.update(bytes.subarray(28)), cipher.final()]).toString('utf8')
+}
+const listTypes = new Set(['default', 'general', 'online', 'local', 'remote', 'folder'])
+const object = (value) => Boolean(value && typeof value === 'object' && !Array.isArray(value))
+const idValue = (value) => (typeof value === 'string' && value.length > 0 && value.length <= 4096) || Number.isSafeInteger(value)
+function validateList(list) {
+  if (!object(list) || !idValue(list.id) || typeof list.name !== 'string' || list.name.length > 4096 ||
+      !listTypes.has(list.type) || !object(list.meta) || !Array.isArray(list.list) ||
+      list.list.some((song) => !object(song) || !idValue(song.id) ||
+      typeof song.name !== 'string' || typeof song.singer !== 'string' || !object(song.meta))) {
+    fail(400, '歌单数据格式有误')
+  }
+}
+function validate(kind, data) {
+  if (kind === 'lists') {
+    if (!object(data) || data.defaultList?.id !== 'default' || data.loveList?.id !== 'love' ||
+        data.defaultList.type !== 'default' || data.loveList.type !== 'default' || !Array.isArray(data.userList)) {
+      fail(400, '歌单快照格式有误')
+    }
+    const ids = new Set()
+    for (const list of [data.defaultList, data.loveList, ...data.userList]) {
+      validateList(list)
+      if (ids.has(String(list.id))) fail(400, '歌单 ID 重复')
+      ids.add(String(list.id))
+    }
+    return data
+  }
+  if (!Array.isArray(data) || data.length > 100) fail(400, '音源列表格式有误')
+  const seen = new Set()
+  return data.map((row) => {
+    if (!object(row) || typeof row.name !== 'string' || row.name.length > 512 ||
+        typeof row.script !== 'string' || !row.script.trim() || Buffer.byteLength(row.script) > 4 * 1024 * 1024 ||
+        typeof row.enabled !== 'boolean' || (row.url != null && (typeof row.url !== 'string' ||
+        row.url.length > 4096 || (row.url && !/^https?:\/\//i.test(row.url))))) fail(400, '音源内容或更新链接格式有误')
+    const script = row.script.trim()
+    const digest = hash(script)
+    if (seen.has(digest)) fail(400, '列表中已有相同音源')
+    seen.add(digest)
+    return { name: row.name, script, url: row.url || '', enabled: row.enabled, digest }
+  })
+}
+function library(uid, kind) {
+  const row = sql('SELECT revision, data FROM libraries WHERE uid=? AND kind=?').get(uid, kind)
+  if (!row) return { revision: 0, data: null }
+  return { revision: row.revision, data: JSON.parse(kind === 'sources' ? reveal(row.data) : row.data) }
+}
+function saveLibrary(uid, kind, body) {
+  if (!Number.isSafeInteger(body.revision) || body.revision < 0 || !/^[0-9A-Za-z_-]{16,80}$/.test(body.operation || '')) {
+    fail(400, '同步版本或操作编号无效')
+  }
+  const data = validate(kind, body.data)
+  return tx(() => {
+    const prior = sql('SELECT revision FROM writes WHERE uid=? AND kind=? AND operation=?').get(uid, kind, body.operation)
+    if (prior) return prior
+    const current = sql('SELECT revision FROM libraries WHERE uid=? AND kind=?').get(uid, kind)?.revision ?? 0
+    if (current !== body.revision) fail(409, '服务器已有新的修改，请重新同步')
+    const revision = current + 1
+    const encoded = JSON.stringify(data)
+    sql(`INSERT INTO libraries(uid,kind,revision,data) VALUES(?,?,?,?)
+      ON CONFLICT(uid,kind) DO UPDATE SET revision=excluded.revision,data=excluded.data`)
+      .run(uid, kind, revision, kind === 'sources' ? protect(encoded) : encoded)
+    sql('INSERT INTO writes VALUES(?,?,?,?,?)').run(uid, kind, body.operation, revision, now())
+    return { revision }
+  })
+}
+
+const authQuery = {
+  api: 'SELECT d.id AS device,u.* FROM devices d JOIN users u ON u.id=d.uid WHERE d.token=? AND u.active=1',
+  web: 'SELECT u.* FROM sessions s JOIN users u ON u.id=s.uid WHERE s.token=? AND s.expires>? AND u.active=1',
+}
+function browserToken(req) {
+  return req.headers.cookie?.match(/(?:^|;\s*)tide_session=([\w-]{43})(?:;|$)/)?.[1] || ''
+}
+function authenticate(req, api) {
+  const token = api ? req.headers.authorization?.match(/^Bearer ([\w-]{43})$/)?.[1] : browserToken(req)
+  if (!token) fail(401, api ? '设备需要重新配对' : '请登录')
+  const user = api ? sql(authQuery.api).get(hash(token)) : sql(authQuery.web).get(hash(token), now())
+  if (!user) fail(401, api ? '设备需要重新配对' : '请登录')
+  if (api) sql('UPDATE devices SET seen=? WHERE id=? AND seen<?').run(now(), user.device, now() - 30)
+  return user
+}
+const sessionCookie = (token, ttl) => 'tide_session=' + token + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=' + ttl + (local ? '' : '; Secure')
+const counters = new Map()
+function throttle(req, kind, max, seconds) {
+  const address = process.env.SYNC_TRUST_PROXY === '1'
+    ? (req.headers['x-forwarded-for']?.split(',').at(-1)?.trim() || req.socket.remoteAddress)
+    : req.socket.remoteAddress
+  const id = kind + ':' + address
+  const counter = counters.get(id)
+  if (!counter || counter.until <= now()) {
+    if (counters.size > 20000) fail(429, '请求过多，请稍后再试')
+    counters.set(id, { count: 1, until: now() + seconds })
+  } else if (++counter.count > max) fail(429, '尝试次数过多，请稍后再试')
+}
+const clean = setInterval(() => {
+  for (const [id, value] of counters) if (value.until <= now()) counters.delete(id)
+  sql('DELETE FROM sessions WHERE expires<=?').run(now())
+  sql('DELETE FROM codes WHERE expires<=?').run(now())
+  sql('DELETE FROM writes WHERE created<?').run(now() - 30 * day)
+}, 60000)
+clean.unref()
+
+function json(res, value, status = 200, headers = {}) {
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', ...headers })
+  res.end(JSON.stringify(value))
+}
+async function payload(req, max = limit) {
+  if (!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] || '')) fail(415, '请求应为 JSON')
+  if (Number(req.headers['content-length']) > max) fail(413, '内容超过大小限制')
+  const parts = []
+  let size = 0
+  for await (const part of req) {
+    size += part.length
+    if (size > max) fail(413, '内容超过大小限制')
+    parts.push(part)
+  }
+  try {
+    const data = JSON.parse(Buffer.concat(parts).toString('utf8'))
+    if (!object(data)) fail(400, '请求格式有误')
+    return data
+  } catch (error) {
+    if (error.status) throw error
+    fail(400, '请求格式有误')
+  }
+}
+const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
+function minutes(value) {
+  if (!Number.isInteger(value) || value < 1 || value > 1440) fail(400, '有效期须为 1 至 1440 分钟')
+  return value
+}
+const defaultExpiry = () => sql("SELECT value FROM settings WHERE name='pairMinutes'").get()?.value ?? 10
+function pair(body) {
+  const code = typeof body.code === 'string' ? body.code.toUpperCase().replace(/[\s-]/g, '') : ''
+  if (!/^[A-Z2-9]{8}$/.test(code)) fail(400, '配对码无效或已过期')
+  const name = typeof body.name === 'string' ? body.name.trim().slice(0, 80) : ''
+  if (!name) fail(400, '请填写设备名称')
+  return tx(() => {
+    const found = sql(`SELECT u.id, u.name FROM codes c JOIN users u ON u.id=c.uid
+      WHERE c.code=? AND c.expires>? AND u.active=1`).get(hash(code), now())
+    if (!found) fail(400, '配对码无效或已过期')
+    sql('DELETE FROM codes WHERE code=?').run(hash(code))
+    const token = random()
+    const device = sql('INSERT INTO devices(token,uid,name,seen) VALUES(?,?,?,?)').run(hash(token), found.id, name, now())
+    return { token, account: found.name, device: Number(device.lastInsertRowid), library: String(found.id) }
+  })
+}
+
+function requireAdmin(user) {
+  if (!user.admin) fail(403, '需要管理员权限')
+}
+function revokeUser(uid) {
+  for (const table of ['sessions', 'devices', 'codes']) sql('DELETE FROM ' + table + ' WHERE uid=?').run(uid)
+}
+async function admin(req, res, path, method) {
+  if (method !== 'GET' && req.headers.origin !== origin) fail(403, '请求来源无效')
+  if (path === '/admin/api/login' && method === 'POST') {
+    throttle(req, 'login', 12, 600)
+    const body = await payload(req, 8192)
+    const name = username(body.name)
+    const password = validPassword(body.password)
+    const found = sql('SELECT * FROM users WHERE name=? AND active=1').get(name)
+    const expected = found?.password || '0'.repeat(32) + ':' + '0'.repeat(128)
+    const candidate = await passwordHash(password, expected.split(':')[0])
+    if (!timingSafeEqual(Buffer.from(candidate), Buffer.from(expected)) || !found) fail(401, '账号或密码错误')
+    const token = random()
+    sql('INSERT INTO sessions VALUES(?,?,?)').run(hash(token), found.id, now() + day)
+    return json(res, { account: found.name }, 200, { 'set-cookie': sessionCookie(token, day) })
+  }
+  const user = authenticate(req, false)
+  if (method === 'GET' && path === '/admin/api/account') {
+    const users = user.admin ? sql('SELECT id,name,active FROM users ORDER BY id').all() : []
+    const devices = user.admin
+      ? sql('SELECT d.id,d.uid,d.name,d.seen,u.name AS account FROM devices d JOIN users u ON u.id=d.uid ORDER BY d.id').all()
+      : sql('SELECT id,uid,name,seen FROM devices WHERE uid=? ORDER BY id').all(user.id)
+    const codes = user.admin
+      ? sql('SELECT c.rowid AS id,c.uid,c.expires,u.name AS account FROM codes c JOIN users u ON u.id=c.uid WHERE c.expires>?').all(now())
+      : sql('SELECT rowid AS id,uid,expires FROM codes WHERE uid=? AND expires>?').all(user.id, now())
+    return json(res, { account: user.name, id: user.id, admin: Boolean(user.admin), users, devices, codes, minutes: defaultExpiry() })
+  }
+  const kind = path.match(/^\/admin\/api\/(lists|sources)$/)?.[1]
+  if (kind && method === 'GET') return json(res, library(user.id, kind))
+  if (kind && method === 'PUT') return json(res, saveLibrary(user.id, kind, await payload(req)))
+  if (method !== 'POST') fail(404, '接口不存在')
+  const body = await payload(req, 8192)
+  switch (path) {
+    case '/admin/api/logout':
+      sql('DELETE FROM sessions WHERE token=?').run(hash(browserToken(req)))
+      return json(res, {}, 200, { 'set-cookie': sessionCookie('', 0) })
+    case '/admin/api/code': {
+      const uid = user.admin && Number.isInteger(body.uid) ? body.uid : user.id
+      if (!sql('SELECT id FROM users WHERE id=? AND active=1').get(uid)) fail(404, '用户不存在或已停用')
+      if (sql('SELECT COUNT(*) AS n FROM codes WHERE uid=? AND expires>?').get(uid, now()).n >= 30) fail(429, '待使用的配对码过多')
+      const expires = now() + minutes(body.minutes ?? defaultExpiry()) * 60
+      const code = Array.from({ length: 8 }, () => chars[randomInt(chars.length)]).join('')
+      sql('INSERT INTO codes(code,uid,expires,created) VALUES(?,?,?,?)').run(hash(code), uid, expires, now())
+      return json(res, { code, expires }, 201)
+    }
+    case '/admin/api/default-expiry':
+      requireAdmin(user)
+      sql("INSERT OR REPLACE INTO settings VALUES('pairMinutes',?)").run(minutes(body.minutes))
+      return json(res, {})
+    case '/admin/api/revoke-code':
+    case '/admin/api/revoke-device': {
+      const table = path.endsWith('code') ? 'codes' : 'devices'
+      if (!Number.isSafeInteger(body.id)) fail(400, '编号无效')
+      sql('DELETE FROM ' + table + ' WHERE rowid=? AND (uid=? OR ?=1)').run(body.id, user.id, user.admin)
+      return json(res, {})
+    }
+    case '/admin/api/create-user': {
+      requireAdmin(user)
+      const name = username(body.name)
+      const password = await passwordHash(validPassword(body.password))
+      if (sql('SELECT id FROM users WHERE name=?').get(name)) fail(409, '账号已存在')
+      sql('INSERT INTO users(name,password) VALUES(?,?)').run(name, password)
+      return json(res, {}, 201)
+    }
+    case '/admin/api/user-status':
+      requireAdmin(user)
+      if (!Number.isSafeInteger(body.uid) || typeof body.active !== 'boolean' || body.uid === user.id) fail(400, '用户设置无效')
+      tx(() => {
+        if (!sql('UPDATE users SET active=? WHERE id=? AND admin=0').run(Number(body.active), body.uid).changes) fail(404, '用户不存在')
+        if (!body.active) revokeUser(body.uid)
+      })
+      return json(res, {})
+    case '/admin/api/password': {
+      const uid = user.admin && Number.isInteger(body.uid) ? body.uid : user.id
+      if (uid === user.id) {
+        const current = await passwordHash(validPassword(body.current), user.password.split(':')[0])
+        if (!timingSafeEqual(Buffer.from(current), Buffer.from(user.password))) fail(401, '当前密码错误')
+      }
+      const password = await passwordHash(validPassword(body.password))
+      tx(() => {
+        if (!sql('UPDATE users SET password=? WHERE id=? AND (?=id OR admin=0)').run(password, uid, user.id).changes) fail(404, '用户不存在')
+        sql('DELETE FROM sessions WHERE uid=? AND token<>?').run(uid, hash(browserToken(req)))
+        sql('DELETE FROM codes WHERE uid=?').run(uid)
+      })
+      return json(res, {})
+    }
+    default: fail(404, '接口不存在')
+  }
+}
+
+const staticAssets = {
+  '/admin': ['admin.html', 'text/html; charset=utf-8'],
+  '/admin/': ['admin.html', 'text/html; charset=utf-8'],
+  '/admin/site.css': ['site.css', 'text/css; charset=utf-8'],
+  '/admin/admin.js': ['admin.js', 'text/javascript; charset=utf-8'],
+}
+async function handler(req, res) {
+  res.setHeader('cache-control', 'no-store')
+  res.setHeader('x-content-type-options', 'nosniff')
+  res.setHeader('referrer-policy', 'no-referrer')
+  res.setHeader('content-security-policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+  const path = new URL(req.url, origin).pathname
+  const method = req.method
+  if (path === '/health' && method === 'GET') return json(res, { status: 'ok' })
+  if (path === '/' && method === 'GET') { res.writeHead(303, { location: '/admin' }); return res.end() }
+  if (Object.hasOwn(staticAssets, path) && method === 'GET') {
+    const [name, type] = staticAssets[path]
+    res.writeHead(200, { 'content-type': type })
+    return res.end(readFileSync(new URL(name, import.meta.url)))
+  }
+  if (path.startsWith('/admin/api/')) return admin(req, res, path, method)
+  if (path === '/api/v1/pair' && method === 'POST') {
+    throttle(req, 'pair', 20, 600)
+    return json(res, pair(await payload(req, 8192)), 201)
+  }
+  const kind = path.match(/^\/api\/v1\/(lists|sources)$/)?.[1]
+  if (!kind || (method !== 'GET' && method !== 'PUT')) fail(404, '接口不存在')
+  const user = authenticate(req, true)
+  if (method === 'GET') return json(res, library(user.id, kind))
+  const body = await payload(req)
+  const active = authenticate(req, true)
+  if (active.id !== user.id) fail(401, '设备需要重新配对')
+  return json(res, saveLibrary(user.id, kind, body))
+}
+
+if (action === 'init') {
+  const name = username(argument || 'admin')
+  const password = validPassword(readFileSync(0, 'utf8').replace(/\r?\n$/, ''))
+  const encoded = await passwordHash(password)
+  tx(() => {
+    if (sql('SELECT id FROM users WHERE admin=1').get()) throw Error('管理员已经初始化')
+    sql('INSERT INTO users(name,password,admin) VALUES(?,?,1)').run(name, encoded)
+  })
+  console.log('管理员已创建')
+  db.close()
+} else if (action === 'backup') {
+  const destination = argument || join(folder, 'sync-backup-' + now() + '.sqlite')
+  if (existsSync(destination)) throw Error('目标备份文件已存在')
+  await backup(db, destination)
+  db.close()
+  console.log(destination)
+} else if (action) {
+  throw Error('用法：server.mjs [init <账号> | backup <路径>]')
+} else {
+  if (!sql('SELECT id FROM users WHERE admin=1').get()) throw Error('请先运行 init 创建管理员')
+  const server = createServer({ requestTimeout: 45000, headersTimeout: 10000 }, (req, res) => {
+    handler(req, res).catch((error) => {
+      if (!error.status) console.error(error.code || error.name)
+      if (!res.headersSent && !res.destroyed) json(res, { error: error.status ? error.message : '同步服务内部错误' }, error.status || 500)
+      else if (!res.writableEnded) res.end()
+    })
+  })
+  server.listen(Number(process.env.SYNC_PORT || 8472), process.env.SYNC_BIND || '0.0.0.0')
+  for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close(() => db.close()))
+}

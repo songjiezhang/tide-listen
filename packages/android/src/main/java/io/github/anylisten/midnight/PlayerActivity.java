@@ -287,6 +287,8 @@ public final class PlayerActivity extends Activity {
               sourceUpdateStatus,
               "dav",
               !store.prefs.getString("dav", "").isEmpty(),
+              "tide", TideSync.status(store),
+              "syncConfigured", TideSync.configured(store),
               "lastSync",
               store.prefs.getLong("lastSync", 0),
               "status",
@@ -564,11 +566,29 @@ public final class PlayerActivity extends Activity {
             .show();
         break;
       case "dav":
-        davForm();
+        if (TideSync.enabled(store)) notice("请先断开汐听同步服务");
+        else davForm();
+        break;
+      case "tidePair":
+        tidePairForm();
+        break;
+      case "tideDisconnect":
+        new AlertDialog.Builder(this)
+            .setMessage("断开本机的汐听同步？")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("断开", (dialog, which) ->
+                syncSettings("正在断开", () -> TideSync.disconnect(store)))
+            .show();
+        break;
+      case "tideSources":
+        syncSettings("正在保存", () -> TideSync.setSources(store, "true".equals(arg)));
+        break;
+      case "tideApprove":
+        approveTideSources();
         break;
       case "sync":
-        if (store.prefs.getString("dav", "").isEmpty()) davForm();
-        else sync(true);
+        if (TideSync.configured(store)) sync(true);
+        else tidePairForm();
         break;
       case "play":
         play(new JSONObject(arg));
@@ -815,6 +835,43 @@ public final class PlayerActivity extends Activity {
         });
   }
 
+  private void tidePairForm() {
+    if (TideSync.enabled(store)) return;
+    LinearLayout layout = form();
+    EditText url = field(layout, "https://sync.example.com", "", InputType.TYPE_TEXT_VARIATION_URI | InputType.TYPE_CLASS_TEXT);
+    EditText code = field(layout, "一次性配对码", "", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
+    dialog("汐听同步服务", layout, "配对", () -> {
+      String address = url.getText().toString(), pairingCode = code.getText().toString();
+      syncSettings("正在配对", () -> TideSync.pair(store, address, pairingCode));
+    });
+  }
+
+  private void syncSettings(String label, Job task) {
+    runJob(label, () -> {
+      String result = task.run();
+      main.post(() -> {
+        if (!isDestroyed()) scheduleSync(500);
+      });
+      return result;
+    });
+  }
+
+  private void approveTideSources() throws JSONException {
+    JSONArray pending = TideSync.pending(store);
+    if (pending.length() == 0) return;
+    StringBuilder message = new StringBuilder("确认信任以下脚本并用服务器列表替换本机音源？\n");
+    for (int i = 1; i < pending.length(); i++) message.append("\n").append(pending.getString(i));
+    if (pending.length() == 1) message.append("\n服务器音源列表为空");
+    int revision = pending.getInt(0);
+    new AlertDialog.Builder(this)
+        .setTitle("确认服务器音源")
+        .setMessage(message.toString())
+        .setNegativeButton("取消", null)
+        .setPositiveButton("应用", (dialog, which) ->
+            syncSettings("正在验证音源", () -> TideSync.approve(store, this, revision)))
+        .show();
+  }
+
   private void davForm() {
     LinearLayout f = form();
     TextView hint = new TextView(this);
@@ -865,7 +922,7 @@ public final class PlayerActivity extends Activity {
           main.post(
               () -> {
                 if (isDestroyed()) return;
-                if (!store.prefs.getString("dav", "").isEmpty()) scheduleSync(400);
+                if (TideSync.configured(store)) scheduleSync(400);
                 transport();
               });
           return result;
@@ -873,13 +930,13 @@ public final class PlayerActivity extends Activity {
   }
 
   private void scheduleSync(long delay) {
-    if (isDestroyed() || store.prefs.getString("dav", "").isEmpty()) return;
+    if (isDestroyed() || !TideSync.configured(store)) return;
     main.removeCallbacks(autoSync);
     main.postDelayed(autoSync, delay);
   }
 
   private void sync(boolean manual) {
-    if (syncRunning || store.prefs.getString("dav", "").isEmpty()) return;
+    if (syncRunning || !TideSync.configured(store)) return;
     syncRunning = true;
     refresh();
     syncWorker.execute(
@@ -887,10 +944,10 @@ public final class PlayerActivity extends Activity {
           String message;
           boolean ok;
           try {
-            message = DavSync.sync(store);
+            message = TideSync.sync(store, this);
             ok = true;
           } catch (Exception e) {
-            message = e.getMessage() != null ? e.getMessage() : "WebDAV 同步失败";
+            message = e.getMessage() != null ? e.getMessage() : "歌单同步失败";
             ok = false;
           }
           String result = message;
@@ -1083,7 +1140,7 @@ public final class PlayerActivity extends Activity {
                 if (isDestroyed()) return;
                 savingCatalog = false;
                 notice(message);
-                if (!store.prefs.getString("dav", "").isEmpty()) scheduleSync(400);
+                if (TideSync.configured(store)) scheduleSync(400);
               });
         });
     Toast.makeText(this, "正在读取完整歌单", Toast.LENGTH_SHORT).show();

@@ -31,7 +31,7 @@ final class DavSync {
     return gen.generateKey();
   }
 
-  private static String protect(String text) throws Exception {
+  static String protect(String text) throws Exception {
     Cipher c = Cipher.getInstance("AES/GCM/NoPadding");
     c.init(Cipher.ENCRYPT_MODE, key());
     return Base64.encodeToString(c.getIV(), Base64.NO_WRAP)
@@ -39,7 +39,7 @@ final class DavSync {
         + Base64.encodeToString(c.doFinal(text.getBytes(StandardCharsets.UTF_8)), Base64.NO_WRAP);
   }
 
-  private static String reveal(String text) throws Exception {
+  static String reveal(String text) throws Exception {
     if (text.isEmpty()) return "";
     String[] s = text.split("\\.", 2);
     Cipher c = Cipher.getInstance("AES/GCM/NoPadding");

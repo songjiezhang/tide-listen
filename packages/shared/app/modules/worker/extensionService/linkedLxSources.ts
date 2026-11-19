@@ -178,3 +178,48 @@ export const manageLinkedLxSource = async (command: Command, sourceId?: string) 
     activeCommands.delete(command)
   }
 }
+
+const getTideLoader = () => {
+  const extension = extensionState.extensions.find((item) => item.id === LX_SOURCE_LOADER && item.loaded && !item.removed)
+  if (!extension?.grant.includes('internet')) throw new Error('请先安装并启用 LX API Source Loader 扩展')
+  return extension
+}
+
+export const exportTideSources = async (): Promise<AnyListen.IPCSync.TideSource[]> => {
+  const extension = getTideLoader()
+  const { sources, enabled } = await readSources(extension)
+  const storage = createStore(extension.dataDirectory)
+  const byId = new Map(sources.map((source) => [source.id, source]))
+  const ordered = [...new Set([...enabled, ...sources.map((source) => source.id)])]
+  const result: AnyListen.IPCSync.TideSource[] = []
+  for (const id of ordered) {
+    const source = byId.get(id)
+    if (!source) continue
+    const script = await storage.readFile('scripts/' + id, 'utf-8')
+    result.push({ name: source.name, url: source.sourceUrl || '', enabled: enabled.includes(id), script })
+  }
+  return result
+}
+
+export const installTideSources = async (input: AnyListen.IPCSync.TideSource[]) => {
+  const extension = getTideLoader()
+  const before = await readSources(extension)
+  const storage = createStore(extension.dataDirectory)
+  const sources: Source[] = []
+  const enabled: string[] = []
+  for (const row of input) {
+    const url = row.url ? new URL(row.url) : new URL('https://invalid.example/imported.js')
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') throw Error('音源更新链接无效')
+    const parsed = parseSource(row.script, url)
+    const source = { ...parsed, name: row.name, sourceUrl: row.url || undefined }
+    if (row.enabled && !before.enabled.includes(source.id)) await verifyLxSource(extension, source, row.script)
+    if (!(await storage.fileExists('scripts/' + source.id))) await storage.writeFile('scripts/' + source.id, row.script)
+    sources.push(source)
+    if (row.enabled) enabled.push(source.id)
+  }
+  const current = await readSources(extension)
+  if (getTideLoader() !== extension || JSON.stringify(before) !== JSON.stringify(current)) {
+    throw Error('本机音源已变更，请重新确认')
+  }
+  await updateExtensionSettings(extension.id, { importedScriptSources: sources, enabledScripts: enabled }, true)
+}

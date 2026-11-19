@@ -1,0 +1,21 @@
+services:
+  sync:
+    build: .
+    environment:
+      SYNC_PUBLIC_URL: "https://${SYNC_DOMAIN:?请设置 SYNC_DOMAIN}"
+      SYNC_TRUST_PROXY: "1"
+    ports:
+      - "127.0.0.1:${SYNC_LOCAL_PORT:-8472}:8472"
+    volumes:
+      - data:/data
+      - secrets:/secrets
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8472/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 4s
+      retries: 3
+volumes:
+  data:
+  secrets:

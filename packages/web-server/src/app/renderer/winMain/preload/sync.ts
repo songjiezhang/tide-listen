@@ -16,6 +16,9 @@ export const createExposeSync = (client: ClientCall) => {
 // 暴露给前端的方法
 export const createClientSync = (ipcSocket: IPCSocket) => {
   return {
+    async tideSync() {
+      throw Error('桌面客户端专用同步设置')
+    },
     async getSyncState() {
       return ipcSocket.remoteQueueSync.getSyncState()
     },

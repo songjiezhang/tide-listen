@@ -181,6 +181,17 @@ export const sendMusicListAction = async (action: AnyListen.IPCList.ActionList) 
   }
 }
 
+export const applySyncedMusicList = async (
+  expected: AnyListen.List.ListDataFull,
+  replacement: AnyListen.List.ListDataFull
+) => {
+  await dbService.breakChangeBackup()
+  if (!(await dbService.listDataOverwriteIfUnchanged(expected, replacement))) return false
+  musicListEvent.emitEvent('list_data_overwrite', replacement, true)
+  musicListEvent.list_changed()
+  return true
+}
+
 export const updateMusicPic = async (listId: string, musicInfo: AnyListen.Music.MusicInfo) => {
   await musicListEvent.list_music_update_pic(listId, musicInfo)
 }
