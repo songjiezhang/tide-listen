@@ -25,4 +25,4 @@ Windows 可使用 `gradlew.bat`。APK 分别生成在 `build/outputs/apk/phone/d
 
 ## 应用内更新
 
-旧 Midnight 版请手动覆盖安装一次。汐听 0.12.0 起支持「设置 → 关于 → 检查更新」。手机和车机使用各自的 APK，系统会验证同包名应用的签名。发布时分别构建 `assemblePhoneRelease`、`assembleDashboardRelease`，使用上一版对应的签名密钥为 Release APK 签名，并上传到同一 GitHub Release。安装包按主 README 的命名规则发布。
+从 0.12.0 或更早版本升级，请手动覆盖安装一次。0.12.1 起手机使用 Android、车机使用 Android-Car 作为版本标识，在「设置 → 关于」可检查对应版本的更新。手机和车机使用各自的 APK，系统会验证同包名应用的签名。发布时分别构建 `assemblePhoneRelease`、`assembleDashboardRelease`，使用上一版对应的签名密钥为 Release APK 签名，并上传到同一 GitHub Release。安装包按主 README 的命名规则发布。

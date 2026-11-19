@@ -297,7 +297,7 @@ function settings() {
     '<button type="button" class="secondary" data-do="source"' + (data.busy ? ' disabled' : '') + '>导入音源</button>' +
     '<button type="button" class="secondary" data-do="updateSources"' + (data.busy ? ' disabled' : '') + '>更新音源</button>' +
     '</span></div><p class="sourceStatus" role="status">' + esc(data.sourceUpdateStatus) + '</p>' +
-    sourceCards() + '</section><section><h2>关于</h2><div class="setting"><div><strong>汐听 TideListen</strong><small>当前版本 ' +
+    sourceCards() + '</section><section><h2>关于</h2><div class="setting"><div><strong>' + esc(data.appName || '汐听') + ' · TideListen</strong><small>当前版本 ' +
     esc(data.appVersion || '') + ' · Midnight 主题</small></div>' + button('checkAppUpdate', '检查更新') + '</div>' +
     '<div class="setting"><div><strong>项目源码与许可</strong><small>基于 Any Listen 的非商业改版</small></div>' +
     button('projectSource', '查看') + '</div></section></div>'

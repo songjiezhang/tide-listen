@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDomSizeChanged } from '@any-listen/web'
   import { onMount } from 'svelte'
+  import brandIcon from '../../../../../shared/brand/tidelisten.svg'
   let contentDom = $state<HTMLElement>()
   let size = $state('52%')
 
@@ -21,9 +22,7 @@
 </script>
 
 <div class="logo" bind:this={contentDom}>
-  <svg class="header-logo" aria-hidden="true" viewBox="0 0 132.14 92.1" width={size}>
-    <use xlink:href="#icon-header-logo" />
-  </svg>
+  <img src={brandIcon} alt="" style:width={size} style:height={size} />
 </div>
 
 <style lang="less">

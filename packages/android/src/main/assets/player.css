@@ -36,10 +36,7 @@ svg {
 .now, .miniControls, .screenHeader, .screenTitle, .fullControls, .setting { display: flex; align-items: center; }
 .appHeader { justify-content: space-between; padding: 6px 16px 3px; min-height: 55px; }
 .brand { font-weight: 700; font-size: 18px; letter-spacing: -.5px; white-space: nowrap; }
-.brand i {
-  display: grid; place-items: center; width: 33px; height: 33px; margin-right: 9px;
-  border-radius: 11px; background: linear-gradient(140deg,#8764ec,#534195); color: #f0e6ff;
-}
+.brand img { width: 33px; height: 33px; margin-right: 9px; }
 .syncBadge { color: #a4d8c4; font-size: 12px; padding: 0 0 0 8px; white-space: nowrap; }
 .syncBadge svg { width: 17px; margin-right: 5px; }
 .syncBadge[data-state="pending"], .syncBadge[data-state="sync"] { color: var(--accent); }

@@ -1,5 +1,7 @@
 # 汐听 TideListen
 
+![汐听的浪尖音符图标](packages/desktop/resources/icons/64x64.png)
+
 基于 [Any Listen](https://github.com/any-listen/any-listen) 的个人非商业改版，由 songjiezhang 维护。默认主题为 Midnight。Windows 桌面端沿用上游的播放器和扩展机制。Android 手机和横屏车机使用独立的 Media3 客户端，三端可通过 WebDAV 共用歌单。
 
 ## 下载安装
@@ -9,10 +11,10 @@
 | 设备 | 安装包文件名 | 软件内更新入口 |
 | --- | --- | --- |
 | Windows x64 | `TideListen-版本-x64-Setup.exe` | 设置 → 软件更新 → 重新检查更新 |
-| Android 手机 | `TideListen-Phone-版本.apk` | 设置 → 关于 → 检查更新 |
-| Android 横屏车机 | `TideListen-Car-版本.apk` | 设置 → 关于 → 检查更新 |
+| Android 手机 | `TideListen-Android-版本.apk` | 设置 → 关于 → 检查更新 |
+| Android 横屏车机 | `TideListen-Android-Car-版本.apk` | 设置 → 关于 → 检查更新 |
 
-Android 最低支持 6.0。车机需要支持直接安装 APK。从 Any Listen Midnight 升级时，请下载对应安装包直接覆盖安装，保留歌单、设置和已导入的音源。旧 Android 更新器使用原仓库地址和文件名，迁移到汐听需要手动安装一次。0.12.0 起从本仓库检查更新。Android 8.0 及以上首次应用内更新时，请在系统页面允许该应用安装更新，再返回播放器。Windows 安装包没有 Authenticode 签名，Release 附有 SHA-256 校验值。
+Android 最低支持 6.0。车机需要支持直接安装 APK。从 0.12.0 或更早的 Android 版升级时，请手动下载对应 APK 覆盖安装一次，保留歌单、设置和已导入的音源。0.12.1 起，手机和车机分别按 Android 和 Android-Car 文件名检查更新。Android 8.0 及以上首次应用内更新时，请在系统页面允许该应用安装更新，再返回播放器。Windows 安装包没有 Authenticode 签名，Release 附有 SHA-256 校验值。
 
 ## 播放与歌单
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import brandIcon from '../../../../../shared/brand/tidelisten.svg'
   import { t } from '@/plugins/i18n'
   import { windowDarg } from '@/shared/browser/widnow.svelte'
 </script>
@@ -11,9 +12,7 @@
 
 {#if import.meta.env.VITE_IS_DESKTOP}
   <div class="aside-logo drag-no-any-modal">
-    <svg aria-hidden="true" viewBox="0 0 24 24" width="30" height="30">
-      <path d="M3 15l3-8 3 12 3-14 3 16 3-10 3 4" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" />
-    </svg>
+    <img src={brandIcon} alt="" width="30" height="30" />
     <span>{$t('app_name')}</span>
   </div>
 {/if}
@@ -50,12 +49,11 @@
     color: var(--color-font);
     letter-spacing: 0.04em;
     white-space: nowrap;
-    svg {
+    img {
       flex: none;
       width: clamp(22px, 2.4vw, 30px);
       min-width: 0;
-      color: var(--color-primary);
-      filter: none;
+      height: auto;
     }
   }
   // .header-name {

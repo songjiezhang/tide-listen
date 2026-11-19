@@ -53,6 +53,10 @@ public final class PlaybackService extends MediaSessionService {
   @Override
   public void onCreate() {
     super.onCreate();
+    DefaultMediaNotificationProvider notifications =
+        new DefaultMediaNotificationProvider.Builder(this).build();
+    notifications.setSmallIcon(R.drawable.tidelisten_note);
+    setMediaNotificationProvider(notifications);
     MusicStore store = MusicStore.get(this);
     DataSource.Factory upstream = new DefaultDataSource.Factory(this);
     DataSource.Factory data = () -> new LxDataSource(this, store, upstream.createDataSource());

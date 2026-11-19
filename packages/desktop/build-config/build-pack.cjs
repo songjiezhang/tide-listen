@@ -74,6 +74,8 @@ const winOptions = {
     license: './licenses/license.rtf',
     shortcutName: '汐听 TideListen',
     artifactName: `TideListen-\${version}-\${arch}-Setup.\${ext}`,
+    installerIcon: './resources/icons/icon.ico',
+    uninstallerIcon: './resources/icons/icon.ico',
     installerSidebar: './resources/install_bg3.bmp',
   },
   portable: {

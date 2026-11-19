@@ -68,11 +68,7 @@ final class AppUpdater {
           String version = tag.substring(1);
           if (compare(version, BuildConfig.VERSION_NAME) <= 0)
             return () -> message("当前已是最新版本 " + BuildConfig.VERSION_NAME);
-          String name =
-              "TideListen-"
-                  + ("dashboard".equals(BuildConfig.FLAVOR) ? "Car-" : "Phone-")
-                  + version
-                  + ".apk";
+          String name = "TideListen-" + BuildConfig.EDITION + "-" + version + ".apk";
           String url = REPOSITORY + "/releases/download/" + tag + "/" + name;
           JSONArray files = release.getJSONArray("assets");
           for (int i = 0; i < files.length(); i++) {

@@ -279,6 +279,8 @@ public final class PlayerActivity extends Activity {
               store.desktop.pendingCount(),
               "sources",
               store.sources.summary(),
+              "appName",
+              getString(R.string.app_name),
               "appVersion",
               BuildConfig.VERSION_NAME,
               "sourceUpdateStatus",
