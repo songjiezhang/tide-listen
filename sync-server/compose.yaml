@@ -1,10 +1,11 @@
 services:
   sync:
-    build: .
-    image: tidelisten-sync:local
+    image: zjuzsj/tide-listen-server:0.13.1
     environment:
       SYNC_PUBLIC_URL: "https://${SYNC_DOMAIN:?请设置 SYNC_DOMAIN}"
       SYNC_TRUST_PROXY: "1"
+      SYNC_ADMIN_USERNAME: "${SYNC_ADMIN_USERNAME:-admin}"
+      SYNC_ADMIN_PASSWORD: "${SYNC_ADMIN_PASSWORD:-}"
     ports:
       - "127.0.0.1:${SYNC_LOCAL_PORT:-8472}:8472"
     volumes:

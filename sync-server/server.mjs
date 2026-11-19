@@ -8,7 +8,10 @@ import { promisify } from 'node:util'
 const folder = process.env.SYNC_DATA || '/data'
 const secretFile = process.env.SYNC_KEY_FILE || '/secrets/sources.key'
 const local = process.env.SYNC_LOCAL_TEST === '1'
-const publicUrl = new URL(process.env.SYNC_PUBLIC_URL || (local ? 'http://127.0.0.1:8472' : 'https://sync.example.com'))
+const domain = process.env.SYNC_DOMAIN
+const publicUrl = new URL(
+  process.env.SYNC_PUBLIC_URL || (domain ? 'https://' + domain : local ? 'http://127.0.0.1:8472' : 'https://sync.example.com')
+)
 if (publicUrl.protocol !== 'https:' && !local) throw Error('SYNC_PUBLIC_URL requires HTTPS')
 const origin = publicUrl.origin
 const scrypt = promisify(scryptCallback)
@@ -19,15 +22,23 @@ const day = 86400
 const limit = 24 * 1024 * 1024
 const [action, argument] = process.argv.slice(2)
 
+const databaseFile = join(folder, 'sync.sqlite')
 mkdirSync(folder, { recursive: true, mode: 0o700 })
-if (action === 'init' && !existsSync(secretFile)) {
-  if (existsSync(join(folder, 'sync.sqlite'))) throw Error('Restore the original sources.key with the database')
+if (!existsSync(secretFile)) {
+  if (existsSync(databaseFile)) throw Error('请将原来的 sources.key 与数据库一起恢复')
+  if (action !== 'init' && (action || !process.env.SYNC_ADMIN_PASSWORD)) {
+    throw Error('首次启动请设置 SYNC_ADMIN_PASSWORD，或用 init 创建管理员')
+  }
   mkdirSync(dirname(secretFile), { recursive: true, mode: 0o700 })
-  writeFileSync(secretFile, randomBytes(32), { flag: 'wx', mode: 0o600 })
+  try {
+    writeFileSync(secretFile, randomBytes(32), { flag: 'wx', mode: 0o600 })
+  } catch (error) {
+    if (error.code !== 'EEXIST') throw error
+  }
 }
 const key = readFileSync(secretFile)
 if (key.length !== 32) throw Error('Invalid sources.key')
-const db = new DatabaseSync(join(folder, 'sync.sqlite'))
+const db = new DatabaseSync(databaseFile)
 db.exec(`
   PRAGMA journal_mode = WAL;
   PRAGMA foreign_keys = ON;
@@ -363,14 +374,23 @@ async function handler(req, res) {
   return json(res, saveLibrary(user.id, kind, body))
 }
 
-if (action === 'init') {
-  const name = username(argument || 'admin')
-  const password = validPassword(readFileSync(0, 'utf8').replace(/\r?\n$/, ''))
-  const encoded = await passwordHash(password)
-  tx(() => {
-    if (sql('SELECT id FROM users WHERE admin=1').get()) throw Error('管理员已经初始化')
-    sql('INSERT INTO users(name,password,admin) VALUES(?,?,1)').run(name, encoded)
+function hasAdmin() {
+  return Boolean(sql('SELECT id FROM users WHERE admin=1').get())
+}
+
+async function createInitialAdmin(name, password) {
+  const account = username(name)
+  const encoded = await passwordHash(validPassword(password))
+  return tx(() => {
+    if (hasAdmin()) return false
+    sql('INSERT INTO users(name,password,admin) VALUES(?,?,1)').run(account, encoded)
+    return true
   })
+}
+
+if (action === 'init') {
+  const password = readFileSync(0, 'utf8').replace(/\r?\n$/, '')
+  if (!await createInitialAdmin(argument || 'admin', password)) throw Error('管理员已经初始化')
   console.log('管理员已创建')
   db.close()
 } else if (action === 'backup') {
@@ -382,7 +402,12 @@ if (action === 'init') {
 } else if (action) {
   throw Error('用法：server.mjs [init <账号> | backup <路径>]')
 } else {
-  if (!sql('SELECT id FROM users WHERE admin=1').get()) throw Error('请先运行 init 创建管理员')
+  if (!hasAdmin()) {
+    const password = process.env.SYNC_ADMIN_PASSWORD
+    if (!password) throw Error('首次启动请设置 SYNC_ADMIN_PASSWORD，或用 init 创建管理员')
+    if (await createInitialAdmin(process.env.SYNC_ADMIN_USERNAME || 'admin', password)) console.log('管理员已创建')
+  }
+  delete process.env.SYNC_ADMIN_PASSWORD
   const server = createServer({ requestTimeout: 45000, headersTimeout: 10000 }, (req, res) => {
     handler(req, res).catch((error) => {
       if (!error.status) console.error(error.code || error.name)

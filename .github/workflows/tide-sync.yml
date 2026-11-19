@@ -10,6 +10,11 @@ on:
       - 'sync-server/**'
       - '.github/workflows/tide-sync.yml'
   workflow_dispatch:
+    inputs:
+      publish_image:
+        description: Publish the verified sync server to Docker Hub
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -26,19 +31,48 @@ jobs:
       run:
         working-directory: sync-server
     env:
+      COMPOSE_FILE: compose.yaml:compose.build.yaml
       SYNC_DOMAIN: sync.example.com
+      SYNC_ADMIN_USERNAME: compose-admin
+      SYNC_ADMIN_PASSWORD: compose-qa-password-2026
     steps:
       - uses: actions/checkout@v6
       - run: docker compose -f compose.yaml -f compose.https.yaml config --quiet
       - run: docker compose build
-      - run: printf '%s\n' 'ci-fixture-admin-2026' | docker compose run --rm -T sync init admin
-      - run: docker compose up -d --wait
-      - run: |
+      - run: docker compose up -d --no-build --wait
+      - name: Verify first startup and persisted admin
+        run: |
           curl --fail --silent http://127.0.0.1:8472/health
           curl --fail --silent http://127.0.0.1:8472/admin | grep -q '同步管理'
+          login() {
+            curl -sS http://127.0.0.1:8472/admin/api/login \
+              -H 'Origin: https://sync.example.com' -H 'Content-Type: application/json' \
+              --data '{"name":"compose-admin","password":"compose-qa-password-2026"}'
+          }
+          login | jq -e '.account == "compose-admin"'
+          SYNC_ADMIN_USERNAME=replacement SYNC_ADMIN_PASSWORD=replacement-qa-password \
+            docker compose up -d --no-build --wait
+          login | jq -e '.account == "compose-admin"'
+          result="$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8472/admin/api/login \
+            -H 'Origin: https://sync.example.com' -H 'Content-Type: application/json' \
+            --data '{"name":"replacement","password":"replacement-qa-password"}')"
+          test "$result" = 401
+          SYNC_ADMIN_PASSWORD= docker compose up -d --no-build --wait
+          login | jq -e '.account == "compose-admin"'
           docker compose exec -T sync node /app/server.mjs backup /data/ci.sqlite
           docker compose cp sync:/data/ci.sqlite /tmp/tide-sync-ci.sqlite
           test -s /tmp/tide-sync-ci.sqlite
+      - name: Verify standalone docker run
+        run: |
+          file="$RUNNER_TEMP/tide-run.env"
+          printf '%s\n' 'SYNC_DOMAIN=direct.example.com' 'SYNC_ADMIN_USERNAME=run-admin' \
+            'SYNC_ADMIN_PASSWORD=direct-qa-password-2026' > "$file"
+          docker run -d --name tide-run-ci --env-file "$file" \
+            -p 127.0.0.1:8473:8472 tidelisten-sync:local
+          curl -fsS --retry 20 --retry-connrefused --retry-delay 1 http://127.0.0.1:8473/health
+          curl -fsS http://127.0.0.1:8473/admin/api/login \
+            -H 'Origin: https://direct.example.com' -H 'Content-Type: application/json' \
+            --data '{"name":"run-admin","password":"direct-qa-password-2026"}' | jq -e '.account == "run-admin"'
       - run: docker run --rm --volume "${PWD}:/suite:ro" --entrypoint node "$(docker compose images -q sync)" /suite/test.mjs
       - name: Save verified image
         env:
@@ -52,9 +86,56 @@ jobs:
           compression-level: 0
           retention-days: 7
       - if: always()
-        run: docker compose down -v
+        run: |
+          docker rm -f tide-run-ci || true
+          docker compose down -v
+
+  publish-docker-hub:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_image && github.ref == 'refs/heads/main'
+    needs: docker
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: tide-listen-server-docker-hub
+      cancel-in-progress: false
+    env:
+      IMAGE: docker.io/zjuzsj/tide-listen-server
+      VERSION: 0.13.1
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sync-linux-*
+          path: image-archives
+      - name: Sign in to Docker Hub
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo '::error::Add the DOCKERHUB_TOKEN Actions secret before publishing.'
+            exit 1
+          fi
+          printf '%s' "$DOCKERHUB_TOKEN" | docker login --username zjuzsj --password-stdin
+      - name: Push the tested image for each architecture
+        run: |
+          for arch in amd64 arm64; do
+            docker load -i "image-archives/sync-linux-$arch/TideListen-Sync-linux-$arch.tar.gz"
+            test "$(docker image inspect tidelisten-sync:local --format '{{.Architecture}}')" = "$arch"
+            target="$IMAGE:$VERSION-$arch"
+            docker tag tidelisten-sync:local "$target"
+            docker push "$target"
+          done
+          docker buildx imagetools create --tag "$IMAGE:$VERSION" --tag "$IMAGE:latest" \
+            "$IMAGE:$VERSION-amd64" "$IMAGE:$VERSION-arm64"
+      - if: always()
+        run: docker logout
+      - name: Verify anonymous pulls
+        run: |
+          for tag in "$VERSION" latest; do
+            docker buildx imagetools inspect --raw "$IMAGE:$tag" | \
+              jq -e '[.manifests[].platform | select(.os == "linux") | .architecture] | sort == ["amd64", "arm64"]'
+          done
 
   android:
+    if: github.event_name != 'workflow_dispatch' || !inputs.publish_image
     runs-on: ubuntu-24.04
     timeout-minutes: 22
     steps:

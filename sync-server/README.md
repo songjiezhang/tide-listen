@@ -4,88 +4,63 @@
 
 ## Docker 部署
 
-### 下载哪些文件
+同步服务的 Docker Hub 镜像是 `zjuzsj/tide-listen-server:0.13.1`，覆盖 Linux amd64 和 arm64。桌面、Android 手机和车机的 v0.13.0 客户端可连接该服务。[Docker Hub 仓库](https://hub.docker.com/r/zjuzsj/tide-listen-server)
 
-NAS 或 VPS 可以**只下载同步服务**。v0.13.0 的服务端文件在 GitHub Release 的附件里。
+### 配置 .env
 
-| 文件 | 用途 |
-| --- | --- |
-| [独立部署包 `TideListen-Sync-Deploy-0.13.0.tar.gz`](https://github.com/songjiezhang/tide-listen/releases/download/v0.13.0/TideListen-Sync-Deploy-0.13.0.tar.gz) | 约 31 KB，包含同步服务、管理网页、Dockerfile、Compose 配置、测试和许可证。自行构建镜像时只需这个包。 |
-| [预构建镜像 `linux-amd64`](https://github.com/songjiezhang/tide-listen/releases/download/v0.13.0/TideListen-Sync-linux-amd64.tar.gz) · [预构建镜像 `linux-arm64`](https://github.com/songjiezhang/tide-listen/releases/download/v0.13.0/TideListen-Sync-linux-arm64.tar.gz) | `x86_64` 选 amd64，`aarch64` 选 arm64。用 `docker load` 导入。用 `docker run` 时只下载镜像即可，用 Compose 时再下载独立部署包取配置。 |
-
-GitHub 自动生成的 `Source code (zip)` 和 `Source code (tar.gz)` 是整仓归档，包含桌面和 Android 客户端源码。部署同步服务请选上表的附件。
-
-### 用 Docker Compose 部署
-
-解压独立部署包，进入包含 `compose.yaml` 的目录。
-
-```bash
-tar -xzf TideListen-Sync-Deploy-0.13.0.tar.gz
-cd TideListen-Sync-0.13.0/sync-server
-```
-
-在该目录创建 `.env`，填写访问管理网页的域名和宿主机映射端口。
+在部署目录准备 `.env`，也可以直接下载 [示例文件](https://raw.githubusercontent.com/songjiezhang/tide-listen/main/sync-server/.env.example) 后改名。在启动前填写自己的初始管理员密码。
 
 ```dotenv
 SYNC_DOMAIN=sync.example.com
 SYNC_LOCAL_PORT=18472
+SYNC_ADMIN_USERNAME=admin
+SYNC_ADMIN_PASSWORD=
 ```
 
-- `SYNC_DOMAIN` 填浏览器实际访问的域名，例如 `sync.example.com`。Compose 将它拼成 `SYNC_PUBLIC_URL=https://sync.example.com`，服务用这个地址校验 `/admin` 的登录等写入请求来源。使用群晖或其他现有反向代理时，由代理处理证书和 HTTPS。
-- `SYNC_LOCAL_PORT` 填宿主机上空闲的端口。示例把 `127.0.0.1:18472` 映射到容器的 `8472`，因此同一宿主机上的反向代理应转发到 `http://127.0.0.1:18472`。省略此项时默认映射到宿主机的 `8472`。
+- `SYNC_DOMAIN` 填浏览器访问的域名。服务会用对应的 HTTPS 地址校验 `/admin` 请求来源，证书和 HTTPS 由现有反向代理处理。
+- `SYNC_LOCAL_PORT` 是 Compose 使用的宿主机端口，默认 `8472`。本例将 `127.0.0.1:18472` 映射到容器的 `8472`。同一宿主机上的反向代理目标填 `http://127.0.0.1:18472`。
+- 管理员账号和密码只在首次启动时使用。密码长度为 12 至 128 个字符。以后在 `/admin` 修改密码。已有实例升级时沿用原数据卷和密钥卷。初始化成功后可清空 `.env` 中的初始密码，再重新创建容器。
 
-镜像准备方式二选一。自行构建时运行 `docker compose build`。用预构建镜像时，导入与你的设备匹配的文件。下面以 amd64 为例，文件路径按实际下载位置填写。导入后的镜像名为 `tidelisten-sync:local`。
+### 用 Docker Compose 启动
+
+把 [compose.yaml](https://raw.githubusercontent.com/songjiezhang/tide-listen/main/sync-server/compose.yaml) 和 `.env` 放在同一个目录，执行：
 
 ```bash
-docker load -i TideListen-Sync-linux-amd64.tar.gz
+docker compose up -d
 ```
 
-仅在首次部署时创建管理员。在 Bash 中执行以下命令，密码通过标准输入传给容器。
+Compose 会拉取镜像，并在首次启动时创建管理员。群晖 Container Manager 可使用同一份 `compose.yaml`。从旧 Compose 部署升级时，在原目录替换 Compose 配置，并保留原来的项目名与卷。
+
+VPS 也可使用 [Caddy 配置文件](https://raw.githubusercontent.com/songjiezhang/tide-listen/main/sync-server/Caddyfile) 和 [Compose HTTPS 配置](https://raw.githubusercontent.com/songjiezhang/tide-listen/main/sync-server/compose.https.yaml)。待域名解析生效且公网 80、443 端口可达后启动。Caddy 在 Docker 网络里直接转发到 `sync:8472`。
 
 ```bash
-read -rs -p '初始管理密码（至少 12 字符）: ' TIDE_INITIAL_PASSWORD
-printf '\n'
-printf '%s\n' "$TIDE_INITIAL_PASSWORD" | docker compose run --rm -T sync init admin
-unset TIDE_INITIAL_PASSWORD
+docker compose -f compose.yaml -f compose.https.yaml up -d
 ```
 
-群晖已有 HTTPS 反向代理时，将域名解析到群晖的公网入口，再把代理目标设为上面配置的宿主机端口。群晖 Container Manager 也可按 `compose.yaml` 创建项目，初始化账号时使用 NAS 终端。反向代理应正确附加客户端地址。
+### 用 docker run 启动
 
-```bash
-docker compose up -d --no-build
-```
-
-VPS 可使用部署包自带的 Caddy 配置。Caddy 同样使用 `SYNC_DOMAIN`，在 Docker 网络里直接转发到 `sync:8472`，宿主机映射端口只供宿主机上的代理或本机访问使用。域名解析生效且公网 80、443 端口可达后启动。
-
-```bash
-docker compose -f compose.yaml -f compose.https.yaml up -d --no-build
-```
-
-### 用 docker run 部署
-
-使用预构建镜像时，先执行上面的 `docker load`。自己构建时，在独立部署包的 `sync-server/` 目录执行 `docker build -t tidelisten-sync:local .`。首次部署创建管理员，然后用同一对数据卷和密钥卷启动容器。把 `SYNC_PUBLIC_URL` 换成浏览器访问的完整 HTTPS 地址，用 `-p` 指定宿主机映射端口。
-
-```bash
-read -rs -p '初始管理密码（至少 12 字符）: ' TIDE_INITIAL_PASSWORD
-printf '\n'
-printf '%s\n' "$TIDE_INITIAL_PASSWORD" | docker run --rm -i \
-  -v tidelisten-sync-data:/data \
-  -v tidelisten-sync-secrets:/secrets \
-  tidelisten-sync:local init admin
-unset TIDE_INITIAL_PASSWORD
-```
+用同样的 `.env` 变量。其中 `--env-file` 的值直接写在等号后，端口改在 `-p` 里填写。下面以宿主机端口 `18472` 为例。
 
 ```bash
 docker run -d --name tidelisten-sync --restart unless-stopped \
-  -p 127.0.0.1:18472:8472 \
-  -e SYNC_PUBLIC_URL=https://sync.example.com \
+  --env-file .env -p 127.0.0.1:18472:8472 \
   -e SYNC_TRUST_PROXY=1 \
   -v tidelisten-sync-data:/data \
   -v tidelisten-sync-secrets:/secrets \
-  tidelisten-sync:local
+  zjuzsj/tide-listen-server:0.13.1
 ```
 
-按上面的端口示例，将 HTTPS 反向代理的目标设为 `http://127.0.0.1:18472`。已有同步实例在升级或切换启动方式时，沿用原数据卷和密钥卷，直接启动服务。
+从已有部署切换启动方式时，把示例卷名换成原来的数据库卷和密钥卷。启动后访问 `https://sync.example.com/admin`，App 配对填写 `https://sync.example.com`。
+
+### 通过 Dockerfile 自行构建
+
+在源码的 `sync-server/` 目录准备好 `.env`，运行：
+
+```bash
+docker compose -f compose.yaml -f compose.build.yaml up -d --build
+```
+
+v0.13.0 Release 里的独立部署包和预构建镜像使用该版本的手动管理员初始化流程。[v0.13.0 部署说明](https://github.com/songjiezhang/tide-listen/blob/e23b3065dc63a817ec7e1e58bfd9661c3f909f24/sync-server/README.md#docker-部署)
 
 ## 网页与设备
 

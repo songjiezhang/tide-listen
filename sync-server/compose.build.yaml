@@ -1,0 +1,4 @@
+services:
+  sync:
+    build: .
+    image: tidelisten-sync:local
