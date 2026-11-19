@@ -22,6 +22,7 @@ const random = () => randomBytes(32).toString('base64url')
 const hash = (value) => createHash('sha256').update(value).digest('hex')
 const now = () => Math.floor(Date.now() / 1000)
 const day = 86400
+const unlimitedExpiry = -1
 const limit = 24 * 1024 * 1024
 const args = process.argv.slice(2)
 const container = args[0] === '--container'
@@ -252,7 +253,7 @@ function throttle(req, kind, max, seconds) {
 const clean = setInterval(() => {
   for (const [id, value] of counters) if (value.until <= now()) counters.delete(id)
   sql('DELETE FROM sessions WHERE expires<=?').run(now())
-  sql('DELETE FROM codes WHERE expires<=?').run(now())
+  sql('DELETE FROM codes WHERE expires<>? AND expires<=?').run(unlimitedExpiry, now())
   sql('DELETE FROM writes WHERE created<?').run(now() - 30 * day)
 }, 60000)
 clean.unref()
@@ -281,11 +282,47 @@ async function payload(req, max = limit) {
   }
 }
 const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
-function minutes(value) {
-  if (!Number.isInteger(value) || value < 1 || value > 1440) fail(400, '有效期须为 1 至 1440 分钟')
-  return value
+// Unit indices are persisted in the settings table.
+const expiryUnits = ['minutes', 'hours', 'days', 'months', 'years', 'never']
+
+function expiryOption(value) {
+  if (!object(value) || !expiryUnits.includes(value.unit)) fail(400, '请选择有效期单位')
+  if (value.unit === 'never') return { unit: value.unit }
+  if (!Number.isInteger(value.amount) || value.amount < 1 || value.amount > 9999) {
+    fail(400, '有效期数量须为 1 至 9999 的整数')
+  }
+  return { unit: value.unit, amount: value.amount }
 }
-const defaultExpiry = () => sql("SELECT value FROM settings WHERE name='pairMinutes'").get()?.value ?? 10
+
+function defaultExpiry() {
+  const read = (name) => sql('SELECT value FROM settings WHERE name=?').get(name)?.value
+  const unit = expiryUnits[read('pairExpiryUnit')]
+  if (!unit) return { unit: 'minutes', amount: read('pairMinutes') ?? 10 }
+  if (unit === 'never') return { unit }
+  return { unit, amount: read('pairExpiryAmount') }
+}
+
+function requestedExpiry(body, useDefault = false) {
+  if (body.expiry !== undefined) return expiryOption(body.expiry)
+  if (body.minutes !== undefined) return expiryOption({ unit: 'minutes', amount: body.minutes })
+  if (useDefault) return defaultExpiry()
+  fail(400, '请设置有效期')
+}
+
+function expiration({ unit, amount }, time) {
+  if (unit === 'never') return unlimitedExpiry
+  if (unit === 'minutes') return time + amount * 60
+  if (unit === 'hours') return time + amount * 3600
+  if (unit === 'days') return time + amount * day
+
+  const date = new Date(time * 1000)
+  const originalDay = date.getUTCDate()
+  date.setUTCMonth(date.getUTCMonth() + amount * (unit === 'years' ? 12 : 1), 1)
+  const lastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate()
+  date.setUTCDate(Math.min(originalDay, lastDay))
+  return date.getTime() / 1000
+}
+
 function pair(body) {
   const code = typeof body.code === 'string' ? body.code.toUpperCase().replace(/[\s-]/g, '') : ''
   if (!/^[A-Z2-9]{8}$/.test(code)) fail(400, '配对码无效或已过期')
@@ -293,7 +330,7 @@ function pair(body) {
   if (!name) fail(400, '请填写设备名称')
   return tx(() => {
     const found = sql(`SELECT u.id, u.name FROM codes c JOIN users u ON u.id=c.uid
-      WHERE c.code=? AND c.expires>? AND u.active=1`).get(hash(code), now())
+      WHERE c.code=? AND (c.expires=? OR c.expires>?) AND u.active=1`).get(hash(code), unlimitedExpiry, now())
     if (!found) fail(400, '配对码无效或已过期')
     sql('DELETE FROM codes WHERE code=?').run(hash(code))
     const token = random()
@@ -308,9 +345,9 @@ function requireAdmin(user) {
 function revokeUser(uid) {
   for (const table of ['sessions', 'devices', 'codes']) sql('DELETE FROM ' + table + ' WHERE uid=?').run(uid)
 }
-async function admin(req, res, path, method) {
+async function webAccount(req, res, path, method, adminPortal) {
   if (method !== 'GET' && req.headers.origin !== origin) fail(403, '请求来源无效')
-  if (path === '/admin/api/login' && method === 'POST') {
+  if (path === '/login' && method === 'POST') {
     throttle(req, 'login', 12, 600)
     const body = await payload(req, 8192)
     const name = username(body.name)
@@ -319,51 +356,68 @@ async function admin(req, res, path, method) {
     const expected = found?.password || '0'.repeat(32) + ':' + '0'.repeat(128)
     const candidate = await passwordHash(password, expected.split(':')[0])
     if (!timingSafeEqual(Buffer.from(candidate), Buffer.from(expected)) || !found) fail(401, '账号或密码错误')
+    if (Boolean(found.admin) !== adminPortal) {
+      fail(403, adminPortal ? '请在普通账号入口 /login 登录' : '请在管理员入口 /admin 登录')
+    }
     const token = random()
     sql('INSERT INTO sessions VALUES(?,?,?)').run(hash(token), found.id, now() + day)
     return json(res, { account: found.name }, 200, { 'set-cookie': sessionCookie(token, day) })
   }
   const user = authenticate(req, false)
-  if (method === 'GET' && path === '/admin/api/account') {
+  if (Boolean(user.admin) !== adminPortal) fail(401, '请在当前入口登录')
+  if (method === 'GET' && path === '/account') {
     const users = user.admin ? sql('SELECT id,name,active FROM users ORDER BY id').all() : []
     const devices = user.admin
       ? sql('SELECT d.id,d.uid,d.name,d.seen,u.name AS account FROM devices d JOIN users u ON u.id=d.uid ORDER BY d.id').all()
       : sql('SELECT id,uid,name,seen FROM devices WHERE uid=? ORDER BY id').all(user.id)
     const codes = user.admin
-      ? sql('SELECT c.rowid AS id,c.uid,c.expires,u.name AS account FROM codes c JOIN users u ON u.id=c.uid WHERE c.expires>?').all(now())
-      : sql('SELECT rowid AS id,uid,expires FROM codes WHERE uid=? AND expires>?').all(user.id, now())
-    return json(res, { account: user.name, id: user.id, admin: Boolean(user.admin), users, devices, codes, minutes: defaultExpiry() })
+      ? sql(`SELECT c.id,c.uid,NULLIF(c.expires,?) AS expires,u.name AS account
+          FROM codes c JOIN users u ON u.id=c.uid WHERE c.expires=? OR c.expires>?`)
+        .all(unlimitedExpiry, unlimitedExpiry, now())
+      : sql(`SELECT id,uid,NULLIF(expires,?) AS expires FROM codes
+          WHERE uid=? AND (expires=? OR expires>?)`).all(unlimitedExpiry, user.id, unlimitedExpiry, now())
+    return json(res, {
+      account: user.name, id: user.id, admin: Boolean(user.admin), users, devices, codes, expiry: defaultExpiry(),
+    })
   }
-  const kind = path.match(/^\/admin\/api\/(lists|sources)$/)?.[1]
+  const kind = path.match(/^\/(lists|sources)$/)?.[1]
   if (kind && method === 'GET') return json(res, library(user.id, kind))
   if (kind && method === 'PUT') return json(res, saveLibrary(user.id, kind, await payload(req)))
   if (method !== 'POST') fail(404, '接口不存在')
   const body = await payload(req, 8192)
   switch (path) {
-    case '/admin/api/logout':
+    case '/logout':
       sql('DELETE FROM sessions WHERE token=?').run(hash(browserToken(req)))
       return json(res, {}, 200, { 'set-cookie': sessionCookie('', 0) })
-    case '/admin/api/code': {
+    case '/code': {
       const uid = user.admin && Number.isInteger(body.uid) ? body.uid : user.id
       if (!sql('SELECT id FROM users WHERE id=? AND active=1').get(uid)) fail(404, '用户不存在或已停用')
-      if (sql('SELECT COUNT(*) AS n FROM codes WHERE uid=? AND expires>?').get(uid, now()).n >= 30) fail(429, '待使用的配对码过多')
-      const expires = now() + minutes(body.minutes ?? defaultExpiry()) * 60
+      const created = now()
+      const pending = sql('SELECT COUNT(*) AS n FROM codes WHERE uid=? AND (expires=? OR expires>?)')
+        .get(uid, unlimitedExpiry, created).n
+      if (pending >= 30) fail(429, '待使用的配对码过多')
+      const expires = expiration(requestedExpiry(body, true), created)
       const code = Array.from({ length: 8 }, () => chars[randomInt(chars.length)]).join('')
-      sql('INSERT INTO codes(code,uid,expires,created) VALUES(?,?,?,?)').run(hash(code), uid, expires, now())
-      return json(res, { code, expires }, 201)
+      sql('INSERT INTO codes(code,uid,expires,created) VALUES(?,?,?,?)').run(hash(code), uid, expires, created)
+      return json(res, { code, expires: expires === unlimitedExpiry ? null : expires }, 201)
     }
-    case '/admin/api/default-expiry':
+    case '/default-expiry':
       requireAdmin(user)
-      sql("INSERT OR REPLACE INTO settings VALUES('pairMinutes',?)").run(minutes(body.minutes))
+      const expiry = requestedExpiry(body)
+      tx(() => {
+        const save = sql('INSERT OR REPLACE INTO settings VALUES(?,?)')
+        save.run('pairExpiryUnit', expiryUnits.indexOf(expiry.unit))
+        save.run('pairExpiryAmount', expiry.amount ?? 0)
+      })
       return json(res, {})
-    case '/admin/api/revoke-code':
-    case '/admin/api/revoke-device': {
+    case '/revoke-code':
+    case '/revoke-device': {
       const table = path.endsWith('code') ? 'codes' : 'devices'
       if (!Number.isSafeInteger(body.id)) fail(400, '编号无效')
       sql('DELETE FROM ' + table + ' WHERE rowid=? AND (uid=? OR ?=1)').run(body.id, user.id, user.admin)
       return json(res, {})
     }
-    case '/admin/api/create-user': {
+    case '/create-user': {
       requireAdmin(user)
       const name = username(body.name)
       const password = await passwordHash(validPassword(body.password))
@@ -371,7 +425,7 @@ async function admin(req, res, path, method) {
       sql('INSERT INTO users(name,password) VALUES(?,?)').run(name, password)
       return json(res, {}, 201)
     }
-    case '/admin/api/user-status':
+    case '/user-status':
       requireAdmin(user)
       if (!Number.isSafeInteger(body.uid) || typeof body.active !== 'boolean' || body.uid === user.id) fail(400, '用户设置无效')
       tx(() => {
@@ -379,7 +433,7 @@ async function admin(req, res, path, method) {
         if (!body.active) revokeUser(body.uid)
       })
       return json(res, {})
-    case '/admin/api/password': {
+    case '/password': {
       const uid = user.admin && Number.isInteger(body.uid) ? body.uid : user.id
       if (uid === user.id) {
         const current = await passwordHash(validPassword(body.current), user.password.split(':')[0])
@@ -398,6 +452,8 @@ async function admin(req, res, path, method) {
 }
 
 const staticAssets = {
+  '/login': ['admin.html', 'text/html; charset=utf-8'],
+  '/login/': ['admin.html', 'text/html; charset=utf-8'],
   '/admin': ['admin.html', 'text/html; charset=utf-8'],
   '/admin/': ['admin.html', 'text/html; charset=utf-8'],
   '/admin/site.css': ['site.css', 'text/css; charset=utf-8'],
@@ -411,13 +467,14 @@ async function handler(req, res) {
   const path = new URL(req.url, origin).pathname
   const method = req.method
   if (path === '/health' && method === 'GET') return json(res, { status: 'ok' })
-  if (path === '/' && method === 'GET') { res.writeHead(303, { location: '/admin' }); return res.end() }
+  if (path === '/' && method === 'GET') { res.writeHead(303, { location: '/login' }); return res.end() }
   if (Object.hasOwn(staticAssets, path) && method === 'GET') {
     const [name, type] = staticAssets[path]
     res.writeHead(200, { 'content-type': type })
     return res.end(readFileSync(new URL(name, import.meta.url)))
   }
-  if (path.startsWith('/admin/api/')) return admin(req, res, path, method)
+  const portal = path.match(/^\/(login|admin)\/api(\/.*)$/)
+  if (portal) return webAccount(req, res, portal[2], method, portal[1] === 'admin')
   if (path === '/api/v1/pair' && method === 'POST') {
     throttle(req, 'pair', 20, 600)
     return json(res, pair(await payload(req, 8192)), 201)

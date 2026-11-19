@@ -1,10 +1,12 @@
 const $ = (id) => document.getElementById(id)
 const status = (message = '') => { $('status').textContent = message }
+const adminPortal = /^\/admin\/?$/.test(location.pathname)
+const portal = adminPortal ? '/admin' : '/login'
 let account
 let tab = 'devices'
 
 async function api(path, method = 'GET', body) {
-  const response = await fetch('/admin/api/' + path, {
+  const response = await fetch(portal + '/api/' + path, {
     method,
     ...(body ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}),
   })
@@ -37,7 +39,7 @@ function button(label, fn) {
 
 function section(label) {
   const panel = element('section', '', 'panel')
-  panel.append(element('h2', label))
+  if (label) panel.append(element('h2', label))
   $('content').append(panel)
   return panel
 }
@@ -55,6 +57,7 @@ function field(form, label, name, type = 'text', value = '') {
 
 function submit(form, label, fn) {
   const action = element('button', label)
+  action.type = 'submit'
   form.append(action)
   form.onsubmit = (event) => {
     event.preventDefault()
@@ -69,6 +72,41 @@ function entry(parent, text, ...buttons) {
 }
 
 const date = (value) => new Date(value * 1000).toLocaleString()
+const expiryLabel = (expires) => expires === null ? '长期有效' : date(expires) + ' 到期'
+
+function expiryFields(form, expiry) {
+  const label = element('label', '有效期单位')
+  const unit = element('select')
+  unit.name = 'expiryUnit'
+  for (const [value, text] of [
+    ['minutes', '分钟'], ['hours', '小时'], ['days', '天'],
+    ['months', '月'], ['years', '年'], ['never', '长期有效'],
+  ]) {
+    const option = element('option', text)
+    option.value = value
+    unit.append(option)
+  }
+  unit.value = expiry.unit
+  label.append(unit)
+  form.append(label)
+  const amount = field(form, '有效期数量', 'expiryAmount', 'number', expiry.amount ?? 1)
+  amount.min = '1'
+  amount.max = '9999'
+  amount.required = true
+  const toggleAmount = () => {
+    const unlimited = unit.value === 'never'
+    amount.disabled = unlimited
+    amount.parentElement.hidden = unlimited
+  }
+  unit.onchange = toggleAmount
+  toggleAmount()
+}
+
+function expiryValue(values) {
+  const unit = values.expiryUnit
+  return unit === 'never' ? { unit } : { unit, amount: Number(values.expiryAmount) }
+}
+
 const put = (kind, revision, data) => api(kind, 'PUT', { revision, data, operation: crypto.randomUUID() })
 
 async function devices() {
@@ -87,13 +125,34 @@ async function devices() {
     label.append(select)
     form.append(label)
   }
-  const expiry = field(form, '有效期（分钟）', 'minutes', 'number', account.minutes)
-  expiry.min = '1'
-  expiry.max = '1440'
-  const result = element('output')
+  expiryFields(form, account.expiry)
+  const result = element('div', '', 'row pair-result')
+  result.hidden = true
+  const output = element('output')
+  const code = element('code')
+  const expires = element('span', '', 'dim')
+  const copy = button('复制配对码', async () => {
+    try {
+      await navigator.clipboard.writeText(code.textContent)
+      status('配对码已复制')
+    } catch {
+      const range = document.createRange()
+      range.selectNodeContents(code)
+      const selection = window.getSelection()
+      selection.removeAllRanges()
+      selection.addRange(range)
+      status('已选中配对码，请手动复制')
+    }
+  })
+  output.append(code, expires)
+  result.append(output, copy)
   submit(form, '生成配对码', async (values) => {
-    const created = await api('code', 'POST', { uid: Number(values.uid), minutes: Number(values.minutes) })
-    result.textContent = created.code + ' · ' + date(created.expires) + ' 到期'
+    const body = { expiry: expiryValue(values) }
+    if (account.admin) body.uid = Number(values.uid)
+    const created = await api('code', 'POST', body)
+    code.textContent = created.code
+    expires.textContent = expiryLabel(created.expires)
+    result.hidden = false
     account = await api('account')
     drawCodes()
   })
@@ -103,7 +162,7 @@ async function devices() {
     codes.replaceChildren(element('h2', '待使用的配对码'))
     if (!account.codes.length) codes.append(element('p', '暂无待使用的配对码', 'dim'))
     for (const code of account.codes) {
-      entry(codes, (code.account ?? account.account) + ' · ' + date(code.expires) + ' 到期',
+      entry(codes, (code.account ?? account.account) + ' · ' + expiryLabel(code.expires),
         button('作废', async () => { await api('revoke-code', 'POST', { id: code.id }); account = await api('account'); drawCodes() }))
     }
   }
@@ -149,10 +208,11 @@ async function users() {
   }
   const defaults = section('默认配对有效期')
   const config = element('form')
-  const expiry = field(config, '有效期（分钟）', 'minutes', 'number', account.minutes)
-  expiry.min = '1'
-  expiry.max = '1440'
-  submit(config, '保存', async (data) => { await api('default-expiry', 'POST', { minutes: Number(data.minutes) }); status('默认有效期已更新') })
+  expiryFields(config, account.expiry)
+  submit(config, '保存', async (data) => {
+    await api('default-expiry', 'POST', { expiry: expiryValue(data) })
+    status('默认有效期已更新')
+  })
   defaults.append(config)
 }
 
@@ -190,7 +250,7 @@ async function lists() {
 async function sources() {
   const state = await api('sources')
   const data = state.data || []
-  const panel = section('洛雪 JS 音源')
+  const panel = section()
   const form = element('form')
   field(form, '名称', 'name').required = true
   field(form, '更新链接（可选）', 'url', 'url')
@@ -276,6 +336,11 @@ async function load() {
     if (error.status !== 401) throw error
     account = undefined
   }
+  const title = adminPortal
+    ? (account ? '同步管理' : '管理员登录')
+    : (account ? '我的同步' : '账号登录')
+  $('page-title').textContent = title
+  document.title = '汐听 · ' + title
   $('login').hidden = Boolean(account)
   $('logout').hidden = !account
   $('dashboard').hidden = !account

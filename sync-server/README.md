@@ -4,7 +4,7 @@
 
 ## Docker 部署
 
-同步服务的 Docker Hub 镜像是 `zjuzsj/tide-listen-server:0.13.2`，覆盖 Linux amd64 和 arm64。桌面、Android 手机和车机的 v0.13.0 客户端可连接该服务。[Docker Hub 仓库](https://hub.docker.com/r/zjuzsj/tide-listen-server)
+同步服务的 Docker Hub 镜像是 `zjuzsj/tide-listen-server:0.13.3`，覆盖 Linux amd64 和 arm64。桌面、Android 手机和车机的 v0.13.0 客户端可连接该服务。[Docker Hub 仓库](https://hub.docker.com/r/zjuzsj/tide-listen-server)
 
 ### 配置 .env
 
@@ -47,7 +47,7 @@ docker run -d --name tidelisten-sync --restart unless-stopped \
   -e SYNC_TRUST_PROXY=1 \
   -v tidelisten-sync-data:/data \
   -v tidelisten-sync-secrets:/secrets \
-  zjuzsj/tide-listen-server:0.13.2
+  zjuzsj/tide-listen-server:0.13.3
 ```
 
 从已有部署切换启动方式时，把示例卷名换成原来的数据库卷和密钥卷。启动后访问 `https://sync.example.com/admin`，App 配对填写 `https://sync.example.com`。
@@ -72,7 +72,7 @@ v0.13.0 Release 里的独立部署包和预构建镜像使用该版本的手动�
       - ./secrets:/secrets
 ```
 
-只将镜像改为 `zjuzsj/tide-listen-server:0.13.2`，再执行：
+只将镜像改为 `zjuzsj/tide-listen-server:0.13.3`，再执行：
 
 ```bash
 docker compose up -d
@@ -84,8 +84,8 @@ v0.13.1 的手动权限排查可参考该版本的部署说明。[旧镜像权�
 
 ## 网页与设备
 
-1. 打开 `https://sync.example.com/admin`，使用初始化的管理员账号和密码登录。
-2. 在「账号设置」创建用户，在「配对与设备」为该用户生成配对码。默认 10 分钟有效。生成时可以单独选有效期，管理员也可以更新全局默认值。
+1. 服务根地址会跳转到普通账号登录页 `https://sync.example.com/login`。管理员使用初始化的账号和密码在 `https://sync.example.com/admin` 登录。
+2. 在「账号设置」创建用户，在「配对与设备」为该用户生成配对码。默认有效期为 10 分钟。生成时可选择分钟、小时、天、月、年或长期有效，管理员也可修改全局默认值。生成后点击「复制配对码」。选择长期有效的配对码在使用或作废前一直有效，每个码只可配对一次。
 3. 桌面打开「设置 → 数据同步」，手机和车机打开「设置 → 同步」。在「汐听同步服务」填写 `https://sync.example.com` 和配对码。每台设备使用新生成的配对码。配对后可在网页撤销设备。
 4. 桌面可合并现有本机歌单，或选择「从 WebDAV 迁移」。迁移先同步配置中的 WebDAV 歌单，再预览列表和曲目数量。确认后客户端写本机 JSON 备份，将歌单合并到配对用户的库，并切换到新同步方式。等待其他已连接 WebDAV 的设备上传未同步的改动，再配对至新服务。
 5. 歌单同步自动运行。Android 在前台轮询，离线修改会保留并于下次联机上传。桌面和移动端都可手动同步。

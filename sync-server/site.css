@@ -23,4 +23,6 @@ form button { justify-self: start; }
 .entry { border-top: 1px solid #373249; padding: .7rem 0; }
 .entry span { flex: 1; min-width: 12rem; overflow-wrap: anywhere; }
 .dim { color: #b7adc8; }
-output { display: block; font-size: 1.35rem; color: #d6c8ff; overflow-wrap: anywhere; }
+.pair-result { margin-top: .9rem; }
+output { display: flex; flex-wrap: wrap; align-items: baseline; gap: .55rem; font-size: 1.35rem; color: #d6c8ff; overflow-wrap: anywhere; }
+output .dim { font-size: .9rem; }

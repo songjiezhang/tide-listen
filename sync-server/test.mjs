@@ -37,8 +37,10 @@ async function request(path, settings = {}) {
     cookie: response.headers.get('set-cookie')?.split(';')[0] }
 }
 const post = (path, body, options = {}) => request(path, { ...options, method: 'POST', body })
-const login = async (name, password) => (await post('/admin/api/login', { name, password })).cookie
-const addCode = async (cookie, uid, minutes) => (await post('/admin/api/code', { uid, minutes }, { cookie, status: 201 })).data
+const login = async (portal, name, password, status = 200) =>
+  (await post(portal + '/api/login', { name, password }, { status })).cookie
+const addCode = async (portal, cookie, body = {}) =>
+  (await post(portal + '/api/code', body, { cookie, status: 201 })).data
 const pair = async (code, name, status = 201) => (await post('/api/v1/pair', { code, name }, { status })).data
 const put = (kind, token, revision, data, status = 200, operation = randomUUID()) =>
   request('/api/v1/' + kind, { method: 'PUT', token, body: { revision, data, operation }, status })
@@ -57,27 +59,70 @@ try {
     try { await request('/health'); started = true; break } catch { await sleep(100) }
   }
   assert(started)
+  const home = await fetch(url, { redirect: 'manual' })
+  assert.equal(home.status, 303)
+  assert.equal(home.headers.get('location'), '/login')
+  assert.match((await request('/login')).data, /汐听/)
   assert.match((await request('/admin')).data, /汐听/)
   await request('/admin/api/account', { status: 401 })
-  await post('/admin/api/login', { name: 'owner', password: 'Test-Owner-Password-001' }, { status: 403, origin: 'http://invalid.example' })
-  const owner = await login('owner', 'Test-Owner-Password-001')
-  await post('/admin/api/create-user', { name: 'member', password: 'Test-Member-Password-002' }, { cookie: owner, status: 201 })
-  const users = (await request('/admin/api/account', { cookie: owner })).data.users
-  const memberId = users.find((user) => user.name === 'member').id
-  const user = await login('member', 'Test-Member-Password-002')
-  assert.deepEqual((await request('/admin/api/account', { cookie: user })).data.users, [])
-  await post('/admin/api/default-expiry', { minutes: 27 }, { cookie: owner })
-  const desktopCode = await addCode(owner, memberId)
+  await request('/login/api/account', { status: 401 })
+
+  const ownerPassword = 'Test-Owner-Password-001'
+  const memberPassword = 'Test-Member-Password-002'
+  await post('/admin/api/login', { name: 'owner', password: ownerPassword }, { status: 403, origin: 'http://invalid.example' })
+  const owner = await login('/admin', 'owner', ownerPassword)
+  await post('/admin/api/create-user', { name: 'member', password: memberPassword }, { cookie: owner, status: 201 })
+  const adminAccount = () => request('/admin/api/account', { cookie: owner })
+  const memberId = (await adminAccount()).data.users.find((user) => user.name === 'member').id
+  assert.equal(await login('/login', 'owner', ownerPassword, 403), undefined)
+  assert.equal(await login('/admin', 'member', memberPassword, 403), undefined)
+  const user = await login('/login', 'member', memberPassword)
+  assert.deepEqual((await request('/login/api/account', { cookie: user })).data.users, [])
+  await request('/admin/api/account', { cookie: user, status: 401 })
+  await request('/login/api/account', { cookie: owner, status: 401 })
+  await post('/login/api/default-expiry', { expiry: { unit: 'never' } }, { cookie: user, status: 403 })
+
+  const db = new DatabaseSync(join(folder, 'sync.sqlite'))
+  db.prepare('INSERT INTO settings VALUES(?,?)').run('pairMinutes', 27)
+  assert.deepEqual((await adminAccount()).data.expiry, { unit: 'minutes', amount: 27 })
+  const desktopCode = await addCode('/admin', owner, { uid: memberId })
   const desktop = await pair(desktopCode.code, 'Windows')
   assert.equal(desktop.account, 'member')
   assert(desktopCode.expires - Date.now() / 1000 > 26 * 60)
   await pair(desktopCode.code, 'Reuse', 400)
-  const expiring = await addCode(owner, memberId, 1)
-  const db = new DatabaseSync(join(folder, 'sync.sqlite'))
+  const expiring = await addCode('/admin', owner, { uid: memberId, minutes: 1 })
   db.prepare('UPDATE codes SET expires=0 WHERE code=?').run(createHash('sha256').update(expiring.code).digest('hex'))
   await pair(expiring.code, 'Expired', 400)
-  const phone = await pair((await addCode(user)).code, 'Android')
-  const car = await pair((await addCode(user)).code, 'Android-Car')
+
+  for (const [unit, min, max] of [
+    ['minutes', 60, 60], ['hours', 3600, 3600], ['days', 86400, 86400],
+    ['months', 28 * 86400, 31 * 86400], ['years', 365 * 86400, 366 * 86400],
+  ]) {
+    const before = Math.floor(Date.now() / 1000)
+    const { expires } = await addCode('/admin', owner, { expiry: { unit, amount: 1 } })
+    const after = Math.floor(Date.now() / 1000)
+    assert(expires >= before + min && expires <= after + max, 'expiry for ' + unit)
+  }
+  for (const expiry of [{ unit: 'weeks', amount: 1 }, { unit: 'days', amount: 0 }, { unit: 'hours', amount: 1.5 }]) {
+    await post('/admin/api/code', { expiry }, { cookie: owner, status: 400 })
+  }
+  const newDefault = { unit: 'never' }
+  await post('/admin/api/default-expiry', { expiry: newDefault }, { cookie: owner })
+  assert.deepEqual((await adminAccount()).data.expiry, newDefault)
+  const pending = await addCode('/login', user)
+  assert.equal(pending.expires, null)
+  const active = (await request('/login/api/account', { cookie: user })).data.codes
+  assert.equal(active.length, 1)
+  assert.equal(active[0].expires, null)
+  const phone = await pair(pending.code, 'Android')
+  await pair(pending.code, 'Reuse unlimited', 400)
+
+  const unneeded = await addCode('/login', user)
+  const unused = (await request('/login/api/account', { cookie: user })).data.codes
+  assert.equal(unused.length, 1)
+  await post('/login/api/revoke-code', { id: unused[0].id }, { cookie: user })
+  await pair(unneeded.code, 'Revoked code', 400)
+  const car = await pair((await addCode('/login', user, { expiry: { unit: 'hours', amount: 2 } })).code, 'Android-Car')
   assert.equal(phone.library, desktop.library)
   assert.equal((await info(car.token, 'lists')).data.revision, 0)
   const operation = randomUUID()
@@ -97,12 +142,12 @@ try {
   const encrypted = db.prepare("SELECT data FROM libraries WHERE kind='sources'").get().data
   assert(!encrypted.includes('test-fixture-js') && !encrypted.includes('example.com'))
   db.close()
-  await post('/admin/api/revoke-device', { id: car.device }, { cookie: user })
+  await post('/login/api/revoke-device', { id: car.device }, { cookie: user })
   await request('/api/v1/lists', { token: car.token, status: 401 })
   await post('/admin/api/user-status', { uid: memberId, active: false }, { cookie: owner })
   await request('/api/v1/lists', { token: desktop.token, status: 401 })
-  await request('/admin/api/account', { cookie: user, status: 401 })
-  console.log('PASS 登录、权限隔离、一次性配对、过期、撤销、并发版本检查、歌单和音源加密')
+  await request('/login/api/account', { cookie: user, status: 401 })
+  console.log('PASS 登录入口、权限隔离、一次性配对、有效期、撤销、并发版本检查、歌单和音源加密')
 } finally {
   child.kill()
   await once(child, 'exit')
