@@ -66,6 +66,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: android-actions/setup-android@v3
       - name: Build both Android release variants
         working-directory: packages/android
         run: |
