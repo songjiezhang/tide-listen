@@ -36,7 +36,7 @@
     </p>
     {#if import.meta.env.VITE_IS_DESKTOP}
       <p>Any Listen Midnight · 2026-11-20</p>
-      <Btn link onclick={() => void openUrl('https://github.com/songjiezhang/mylisten-midnight')}>Midnight 源码与许可证</Btn>
+      <Btn link onclick={() => { void openUrl('https://github.com/songjiezhang/mylisten-midnight') }}>Midnight 源码与许可证</Btn>
     {:else}
       <Btn onclick={donate}>{$t('donate')}</Btn>
     {/if}

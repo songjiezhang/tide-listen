@@ -8,7 +8,7 @@
 
 | 设备 | 安装包文件名 | 软件内更新入口 |
 | --- | --- | --- |
-| Windows x64 | `Any-Listen-Midnight-版本-x64-Setup.exe` | 设置 → 软件更新，打开更新窗口 |
+| Windows x64 | `Any-Listen-Midnight-版本-x64-Setup.exe` | 设置 → 软件更新 → 重新检查更新 |
 | Android 手机 | `Any-Listen-Midnight-Phone-版本.apk` | 设置 → 关于 → 检查更新 |
 | Android 横屏车机 | `Any-Listen-Midnight-Car-版本.apk` | 设置 → 关于 → 检查更新 |
 

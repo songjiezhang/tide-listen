@@ -55,7 +55,7 @@ export class Update extends UpdateEvent {
       }
     })
   }
-  async checkForUpdates(isAutoUpdate: boolean) {
+  async checkForUpdates(isAutoUpdate: boolean, reportFailure = false) {
     this.emit('checking_for_update')
     try {
       const result = await checkUpdate(appState.appSetting['common.allowPreRelease'])
@@ -76,6 +76,7 @@ export class Update extends UpdateEvent {
       return result.isUpdateAvailable
     } catch (err) {
       this.emit('error', err as Error)
+      if (reportFailure) throw err
       return false
     }
   }

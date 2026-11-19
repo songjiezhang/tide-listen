@@ -151,7 +151,7 @@
       } else {
         showNotify(i18n.t('update_modal.check_result_latest'))
       }
-    })
+    }).catch((error: Error) => showNotify(error.message))
   }
 
   export const setVisible = (val: boolean) => {

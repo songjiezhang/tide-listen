@@ -71,7 +71,7 @@ export const updateIgnoreVersion = (version: string | null) => {
 }
 
 export const checkUpdate = async () => {
-  return update.checkForUpdates(appState.appSetting['common.tryAutoUpdate'])
+  return update.checkForUpdates(appState.appSetting['common.tryAutoUpdate'], true)
 }
 
 export const downloadUpdate = async () => {
