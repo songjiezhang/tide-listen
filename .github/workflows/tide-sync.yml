@@ -69,7 +69,8 @@ jobs:
             'SYNC_ADMIN_PASSWORD=direct-qa-password-2026' > "$file"
           docker run -d --name tide-run-ci --env-file "$file" \
             -p 127.0.0.1:8473:8472 tidelisten-sync:local
-          curl -fsS --retry 20 --retry-connrefused --retry-delay 1 http://127.0.0.1:8473/health
+          curl -fsS --retry 20 --retry-all-errors --retry-delay 1 --max-time 5 \
+            http://127.0.0.1:8473/health || { docker logs tide-run-ci; exit 1; }
           curl -fsS http://127.0.0.1:8473/admin/api/login \
             -H 'Origin: https://direct.example.com' -H 'Content-Type: application/json' \
             --data '{"name":"run-admin","password":"direct-qa-password-2026"}' | jq -e '.account == "run-admin"'
