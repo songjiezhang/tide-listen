@@ -21,6 +21,24 @@ Android 最低支持 6.0。车机需要支持直接安装 APK。首次从旧测�
 - 在 Android 设置中填写桌面端使用的 WebDAV 同步目录，即可按原名称查看「我的列表」。添加、收藏、改名等变更会自动同步。播放网络歌曲所需的 JS 音源由使用者自行从有权使用的来源导入。
 - 手机重新打开后恢复上次曲目、队列和进度。车机默认打开后继续播放，横屏左侧为封面和控制，右侧为滚动歌词。
 
+## 界面预览
+
+桌面截图来自 Windows v0.11.0。手机和车机截图使用同版 APK 内的页面，以竖屏和横屏尺寸渲染。歌单和歌词均为演示内容，点击图片可查看原图。
+
+### Windows 桌面端
+
+![Windows 桌面端「我喜欢」歌单，底部播放栏显示当前歌曲、歌词和播放进度](docs/images/midnight/windows-playlist.png)
+
+### Android 手机
+
+| 我的列表 | 播放与同步歌词 |
+| --- | --- |
+| [![手机竖屏「我的列表」，带封面的歌单下方是迷你播放栏和底部导航](docs/images/midnight/phone-lists.png)](docs/images/midnight/phone-lists.png) | [![手机竖屏播放页，封面下方显示高亮歌词和播放控制](docs/images/midnight/phone-player.png)](docs/images/midnight/phone-player.png) |
+
+### Android 横屏车机
+
+![车机横屏播放页，左侧为封面、进度和播放控制，右侧高亮当前歌词](docs/images/midnight/car-player.png)
+
 ## 从源码构建
 
 请检出与安装包一致的 Release 标签。桌面端需要 Node.js 22.12 或更高版本，以及项目根目录 `packageManager` 指定的 pnpm 10。在 Windows x64 的干净工作副本中执行：
