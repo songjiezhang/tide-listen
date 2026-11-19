@@ -1,6 +1,7 @@
 services:
   sync:
     build: .
+    image: tidelisten-sync:local
     environment:
       SYNC_PUBLIC_URL: "https://${SYNC_DOMAIN:?请设置 SYNC_DOMAIN}"
       SYNC_TRUST_PROXY: "1"

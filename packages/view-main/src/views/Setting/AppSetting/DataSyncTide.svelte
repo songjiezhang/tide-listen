@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import TitleContent from '../components/TitleContent.svelte'
+  import { showSimpleConfirmModal } from '@/components/apis/dialog'
   import { ipc } from '@/shared/ipc/ipc'
 
   let info = $state<AnyListen.IPCSync.TideState>()
@@ -26,9 +27,10 @@
     working = true
     feedback = ''
     try {
-      info = await ipc.tideSync(options)
+      const next = await ipc.tideSync(options)
+      info = next
       if (options.action === 'pair') code = ''
-      if (options.action === 'preview') migration = info.preview
+      if (options.action === 'preview') migration = next.preview
       if (options.action === 'start' || options.action === 'disconnect') migration = undefined
     } catch (error) {
       feedback = error instanceof Error ? error.message : String(error)
@@ -53,12 +55,12 @@
           <button disabled={working} onclick={() => apply({ action: 'sync' })}>立即同步</button>
         {:else}
           <button disabled={working} onclick={() => apply({ action: 'preview' })}>从 WebDAV 迁移</button>
-          <button disabled={working} onclick={() => {
-            if (window.confirm('将本机歌单与当前账号的歌单合并，并开始同步？')) void apply({ action: 'start' })
+          <button disabled={working} onclick={async () => {
+            if (await showSimpleConfirmModal('将本机歌单与当前账号的歌单合并，并开始同步？')) void apply({ action: 'start' })
           }}>合并本机歌单并开启同步</button>
         {/if}
-        <button disabled={working} onclick={() => {
-          if (window.confirm('断开此设备的汐听同步？')) void apply({ action: 'disconnect' })
+        <button disabled={working} onclick={async () => {
+          if (await showSimpleConfirmModal('断开此设备的汐听同步？')) void apply({ action: 'disconnect' })
         }}>断开连接</button>
       </div>
       {#if migration}
@@ -79,9 +81,10 @@
           <strong>服务器音源待确认</strong>
           <p>确认后按服务器列表替换本机洛雪 JS 音源。</p>
           <ul>{#each info.pendingSources as source}<li>{source.name} · {source.enabled ? '启用' : '停用'}</li>{/each}</ul>
-          <button disabled={working} onclick={() => {
-            if (info?.pendingRevision !== undefined && window.confirm('确认信任这些脚本并应用服务器音源？')) {
-              void apply({ action: 'approve', revision: info.pendingRevision })
+          <button disabled={working} onclick={async () => {
+            const revision = info?.pendingRevision
+            if (revision !== undefined && await showSimpleConfirmModal('确认信任这些脚本并应用服务器音源？')) {
+              void apply({ action: 'approve', revision })
             }
           }}>确认并应用音源</button>
         </div>

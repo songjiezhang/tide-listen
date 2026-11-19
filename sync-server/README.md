@@ -20,6 +20,8 @@ printf '%s\n' "$TIDE_INITIAL_PASSWORD" | docker compose run --rm -T sync init ad
 unset TIDE_INITIAL_PASSWORD
 ```
 
+如使用 Release 中的预构建镜像，选对应架构的 `TideListen-Sync-linux-*.tar.gz`，运行 `docker load -i 文件名`，随后直接创建管理员。启动服务时可以加 `--no-build`。
+
 群晖已有反向代理时，配置 HTTPS 子域名转发到 `http://127.0.0.1:8472`，并运行 `docker compose up -d`。容器仅将服务端口映射到宿主机回环地址。群晖 Container Manager 也可按 `compose.yaml` 创建项目，初始化账号时需使用 NAS 终端。后端通过反向代理取连接 IP，反向代理应正确附加客户端地址。
 
 VPS 上可以使用预置的 Caddy 配置，在 DNS 指向服务器且 80、443 可达后运行：

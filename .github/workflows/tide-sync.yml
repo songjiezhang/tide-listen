@@ -19,7 +19,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        include:
+          - { runner: ubuntu-24.04, arch: amd64 }
+          - { runner: ubuntu-24.04-arm, arch: arm64 }
     defaults:
       run:
         working-directory: sync-server
@@ -38,5 +40,16 @@ jobs:
           docker compose cp sync:/data/ci.sqlite /tmp/tide-sync-ci.sqlite
           test -s /tmp/tide-sync-ci.sqlite
       - run: docker run --rm --volume "${PWD}:/suite:ro" --entrypoint node "$(docker compose images -q sync)" /suite/test.mjs
+      - name: Save verified image
+        env:
+          TIDE_ARCH: ${{ matrix.arch }}
+        run: |
+          docker save tidelisten-sync:local | gzip -1 > "/tmp/TideListen-Sync-linux-$TIDE_ARCH.tar.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sync-linux-${{ matrix.arch }}
+          path: /tmp/TideListen-Sync-linux-${{ matrix.arch }}.tar.gz
+          compression-level: 0
+          retention-days: 7
       - if: always()
         run: docker compose down -v
