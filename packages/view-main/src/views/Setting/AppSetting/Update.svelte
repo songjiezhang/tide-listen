@@ -77,7 +77,7 @@
     <Btn min disabled={['checking', 'downloading'].includes(versionInfo.val.status)} onclick={async () => {
       try {
         await checkUpdate()
-        showUpdateModal()
+        void showUpdateModal()
       } catch (error) {
         showNotify((error as Error).message)
       }
