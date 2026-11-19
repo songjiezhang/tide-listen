@@ -1,5 +1,5 @@
-Any Listen Midnight · 2026-11-20
+汐听 TideListen · 2026-11-20
 个人非商业改版，由 songjiezhang 基于 Any Listen 修改。原作者和贡献者保留其权利。
 本版修改了桌面界面、音源管理及更新通道。完整条款见同目录 license_en.txt。
-对应源码、构建说明和修改记录 https://github.com/songjiezhang/mylisten-midnight
+对应源码、构建说明和修改记录 https://github.com/songjiezhang/tide-listen
 原项目 https://github.com/any-listen/any-listen

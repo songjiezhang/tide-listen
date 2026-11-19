@@ -56,10 +56,11 @@ final class LxEngine {
     }
   }
 
-  static JSONObject run(Context c, String script, JSONObject song) throws Exception {
+  static JSONObject run(Context c, String script, JSONObject song, String quality)
+      throws Exception {
     if (script.isEmpty()) throw new IOException("请先在音源设置中导入洛雪 JS 音源");
     LxEngine engine = new LxEngine();
-    engine.preferredQuality = MusicStore.get(c).prefs.getString("quality", "auto");
+    engine.preferredQuality = quality;
     return engine.execute(c, script, song);
   }
 
@@ -206,15 +207,19 @@ final class LxEngine {
           throw new IOException(msg.optString("errorMessage", "音源初始化失败"));
         JSONObject sources = msg.getJSONObject("info").getJSONObject("sources");
         JSONArray supported = new JSONArray();
+        JSONObject qualityMap = new JSONObject();
         for (String p : Arrays.asList("wy", "tx", "kg", "kw", "mg")) {
           JSONObject source = sources.optJSONObject(p);
           if (source != null
               && source.getJSONArray("actions").toString().contains("\"musicUrl\"")
-              && source.getJSONArray("qualitys").length() > 0) supported.put(p);
+              && source.getJSONArray("qualitys").length() > 0) {
+            supported.put(p);
+            qualityMap.put(p, source.getJSONArray("qualitys"));
+          }
         }
         if (supported.length() == 0) throw new IOException("此脚本没有声明可播放的平台或音质");
         if (song == null) {
-          result = obj("platforms", supported);
+          result = obj("platforms", supported, "qualities", qualityMap);
           done.countDown();
           return;
         }
@@ -222,13 +227,9 @@ final class LxEngine {
         if (!supported.toString().contains("\"" + p + "\""))
           throw new IOException("当前音源不支持" + MusicStore.platformName(p));
         JSONArray qualities = sources.getJSONObject(p).getJSONArray("qualitys");
-        String quality = qualities.getString(0);
-        for (int i = 0; i < qualities.length(); i++) {
-          if (preferredQuality.equals(qualities.getString(i))) {
-            quality = preferredQuality;
-            break;
-          }
-        }
+        String quality =
+            "auto".equals(preferredQuality) ? qualities.getString(0) : preferredQuality;
+        if (!LxSources.includes(qualities, quality)) throw new IOException("音源不支持此音质");
         send(
             "request",
             obj(

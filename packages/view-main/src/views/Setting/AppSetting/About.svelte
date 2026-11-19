@@ -14,6 +14,11 @@
 
 <TitleContent>
   <div class="settings-about">
+    {#if import.meta.env.VITE_IS_DESKTOP}
+      <p>{$t('settings__about_tidelisten')}</p>
+      <p><Btn link onclick={() => { void openUrl('https://github.com/songjiezhang/tide-listen') }}>{$t('settings__about_fork_url')}</Btn></p>
+      <p><Btn link onclick={() => { void openUrl('https://github.com/any-listen/any-listen') }}>{$t('settings__about_upstream')}</Btn></p>
+    {:else}
     <p>
       {$t('settings__about_p1')}
     </p>
@@ -34,10 +39,6 @@
         https://github.com/any-listen/any-listen
       </Btn>
     </p>
-    {#if import.meta.env.VITE_IS_DESKTOP}
-      <p>Any Listen Midnight · 2026-11-20</p>
-      <Btn link onclick={() => { void openUrl('https://github.com/songjiezhang/mylisten-midnight') }}>Midnight 源码与许可证</Btn>
-    {:else}
       <Btn onclick={donate}>{$t('donate')}</Btn>
     {/if}
   </div>

@@ -265,13 +265,15 @@ function selectOption(id, title, table) {
 function sourceCards() {
   const actions = (item, name, action) => '<button type="button" class="secondary" data-source-action="' + action +
     '" data-source-id="' + esc(item.id) + '"' + (data.busy ? ' disabled' : '') + '>' + name + '</button>'
-  return (data.sources || []).map((item, i) => '<article class="sourceCard"><div><strong>' + esc(item.name) +
-    '</strong><small>' + esc([item.version, (item.platforms || []).map((p) => platforms[p] || p).join(' / ')].filter(Boolean).join(' · ')) +
+  const enabled = data.sources.filter((item) => item.enabled)
+  const ordered = enabled.concat(data.sources.filter((item) => !item.enabled))
+  return ordered.map((item, i) => '<article class="sourceCard"><div><strong>' + esc(item.name) +
+    '</strong><small>' + esc([item.enabled ? '优先级 ' + (i + 1) : '', item.version, (item.platforms || []).map((p) => platforms[p] || p).join(' / ')].filter(Boolean).join(' · ')) +
     '</small></div><div class="actions">' + actions(item, item.enabled ? '已启用' : '已停用', 'enableSource') +
     (item.linked ? actions(item, '从链接更新', 'updateSource') : '') +
     actions(item, item.linked ? '修改更新地址' : '绑定更新地址', 'editLink') +
-    (i > 0 ? actions(item, '上移', 'raiseSource') : '') +
-    (i + 1 < data.sources.length ? actions(item, '下移', 'lowerSource') : '') +
+    (item.enabled && i > 0 ? actions(item, '上移', 'raiseSource') : '') +
+    (i + 1 < enabled.length ? actions(item, '下移', 'lowerSource') : '') +
     actions(item, '移除', 'removeSource') + '</div></article>').join('')
 }
 function settings() {
@@ -290,13 +292,13 @@ function settings() {
     (data.car ? toggleOption('resumeOnOpen', '打开应用时自动续播', '从上次保存的歌曲和进度继续播放') +
       toggleOption('largeControls', '加大文字与触控区') : '') + '</section><section><h2>音源</h2>' +
     '<div class="setting sourceSetting"><div><strong>音源管理</strong><small>' +
-    esc(data.sources.length ? '已启用 ' + data.sources.filter((item) => item.enabled).length + ' 个' : '尚未导入') + '</small></div>' +
+    esc(data.sources.length ? '已启用 ' + data.sources.filter((item) => item.enabled).length + ' 个 · 同音质按优先级逐个尝试' : '尚未导入') + '</small></div>' +
     '<span class="sourceButtons">' +
     '<button type="button" class="secondary" data-do="source"' + (data.busy ? ' disabled' : '') + '>导入音源</button>' +
     '<button type="button" class="secondary" data-do="updateSources"' + (data.busy ? ' disabled' : '') + '>更新音源</button>' +
     '</span></div><p class="sourceStatus" role="status">' + esc(data.sourceUpdateStatus) + '</p>' +
-    sourceCards() + '</section><section><h2>关于</h2><div class="setting"><div><strong>Any Listen Midnight</strong><small>当前版本 ' +
-    esc(data.appVersion || '') + '</small></div>' + button('checkAppUpdate', '检查更新') + '</div>' +
+    sourceCards() + '</section><section><h2>关于</h2><div class="setting"><div><strong>汐听 TideListen</strong><small>当前版本 ' +
+    esc(data.appVersion || '') + ' · Midnight 主题</small></div>' + button('checkAppUpdate', '检查更新') + '</div>' +
     '<div class="setting"><div><strong>项目源码与许可</strong><small>基于 Any Listen 的非商业改版</small></div>' +
     button('projectSource', '查看') + '</div></section></div>'
 }

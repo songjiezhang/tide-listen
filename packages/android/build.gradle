@@ -7,19 +7,19 @@ android {
         applicationId 'io.github.anylisten.midnight'
         minSdk 23
         targetSdk 35
-        versionCode 10
-        versionName '0.11.0'
+        versionCode 11
+        versionName '0.12.0'
     }
     flavorDimensions 'display'
     productFlavors {
         phone {
             dimension 'display'
-            resValue 'string', 'app_name', 'Any Listen'
+            resValue 'string', 'app_name', '汐听'
         }
         dashboard {
             dimension 'display'
             applicationIdSuffix '.car'
-            resValue 'string', 'app_name', 'Any Listen 车机'
+            resValue 'string', 'app_name', '汐听 车机'
         }
     }
     compileOptions {

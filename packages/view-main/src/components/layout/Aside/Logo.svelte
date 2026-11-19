@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '@/plugins/i18n'
   import { windowDarg } from '@/shared/browser/widnow.svelte'
 </script>
 
@@ -13,7 +14,7 @@
     <svg aria-hidden="true" viewBox="0 0 24 24" width="30" height="30">
       <path d="M3 15l3-8 3 12 3-14 3 16 3-10 3 4" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" />
     </svg>
-    <span>Any Listen</span>
+    <span>{$t('app_name')}</span>
   </div>
 {/if}
 {#if import.meta.env.VITE_IS_WEB}

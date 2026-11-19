@@ -22,7 +22,7 @@
     const result = await showSaveDialog({
       title: i18n.t('settings.backup.save_dir'),
       defaultFileName: `any-listen.backup${CONFIG_FILE_EXT}`,
-      filters: [{ name: 'Any Listen Backup File', extensions: [CONFIG_FILE_EXT.slice(1)] }],
+      filters: [{ name: 'TideListen Backup File', extensions: [CONFIG_FILE_EXT.slice(1)] }],
     })
     if (result.canceled) return
     try {
@@ -37,7 +37,7 @@
   const handleSelectImportFile = async () => {
     const result = await showOpenDialog({
       title: i18n.t('settings.backup.restore_file'),
-      filters: [{ name: 'Any Listen Backup File', extensions: [CONFIG_FILE_EXT.slice(1), 'json'] }],
+      filters: [{ name: 'TideListen Backup File', extensions: [CONFIG_FILE_EXT.slice(1), 'json'] }],
       properties: ['openFile'],
     })
     if (result.canceled) return

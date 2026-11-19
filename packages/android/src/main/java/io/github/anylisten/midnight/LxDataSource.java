@@ -5,6 +5,7 @@ import android.net.Uri;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.datasource.*;
 import java.io.IOException;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -43,16 +44,28 @@ final class LxDataSource implements DataSource {
         return upstream.open(spec.withUri(Uri.parse(track.getString("uri"))));
       online = true;
       checkNetwork();
-      List<LxSources.Candidate> candidates = store.sources.candidates(track.getString("source"));
-      if (candidates.isEmpty())
-        throw new IOException("请启用支持" + MusicStore.platformName(track.getString("source")) + "的音源");
-      String last = "";
-      for (LxSources.Candidate candidate : candidates) {
+      return openOnline(spec, track);
+    } catch (JSONException e) {
+      throw new IOException("歌曲信息无效", e);
+    }
+  }
+
+  private long openOnline(DataSpec spec, JSONObject track) throws IOException, JSONException {
+    String platform = track.getString("source");
+    JSONObject music = track.getJSONObject("music");
+    List<LxSources.Candidate> remaining = store.sources.candidates(platform);
+    if (remaining.isEmpty())
+      throw new IOException("请启用支持" + MusicStore.platformName(platform) + "的音源");
+    String preferred = store.prefs.getString("quality", "auto");
+    String lastError = "";
+    int tried = 0;
+    for (String quality : LxSources.playbackQualities(preferred)) {
+      for (Iterator<LxSources.Candidate> it = remaining.iterator(); it.hasNext(); ) {
+        LxSources.Candidate candidate = it.next();
         checkNetwork();
         try {
-          String url =
-              LxEngine.run(context, candidate.script, track.getJSONObject("music"))
-                  .getString("url");
+          if (!candidate.supports(context, platform, quality)) continue;
+          String url = LxEngine.run(context, candidate.script, music, quality).getString("url");
           checkNetwork();
           long length = upstream.open(spec.withUri(Uri.parse(url)));
           if (length == 0 || isErrorPage(upstream.getResponseHeaders()))
@@ -69,13 +82,15 @@ final class LxDataSource implements DataSource {
           }
           if (Thread.currentThread().isInterrupted())
             throw new java.io.InterruptedIOException("播放请求已取消");
-          last = candidate.name + " · " + e.getMessage();
+          it.remove();
+          tried++;
+          lastError = candidate.name + " · " + e.getMessage();
         }
       }
-      throw new IOException("已尝试 " + candidates.size() + " 个音源，均未能播放。最后一次错误 · " + last);
-    } catch (JSONException e) {
-      throw new IOException("歌曲信息无效", e);
+      if (remaining.isEmpty()) break;
     }
+    if (tried == 0) throw new IOException("已启用的音源不支持所选音质或更低音质");
+    throw new IOException("已尝试 " + tried + " 个音源，均未能播放。最后一次错误 · " + lastError);
   }
 
   private static boolean isErrorPage(Map<String, List<String>> headers) {

@@ -15,12 +15,12 @@ import java.util.concurrent.TimeUnit;
 import okhttp3.*;
 import org.json.*;
 
-/** Manual updates for the installed Midnight flavor. */
+/** Manual updates for the installed TideListen flavor. */
 final class AppUpdater {
   static final int INSTALL_PERMISSION = 42;
-  static final String REPOSITORY = "https://github.com/songjiezhang/mylisten-midnight";
+  static final String REPOSITORY = "https://github.com/songjiezhang/tide-listen";
   private static final String API =
-      "https://api.github.com/repos/songjiezhang/mylisten-midnight/releases/latest";
+      "https://api.github.com/repos/songjiezhang/tide-listen/releases/latest";
   private static final long MAX_APK = 150L * 1024 * 1024;
   private static final OkHttpClient HTTP =
       new OkHttpClient.Builder().followSslRedirects(false).callTimeout(5, TimeUnit.MINUTES).build();
@@ -56,7 +56,7 @@ final class AppUpdater {
       message("正在检查或下载安装包");
       return;
     }
-    message("正在检查 Midnight 更新…");
+    message("正在检查汐听更新…");
     fetch(
         API,
         response -> {
@@ -69,7 +69,7 @@ final class AppUpdater {
           if (compare(version, BuildConfig.VERSION_NAME) <= 0)
             return () -> message("当前已是最新版本 " + BuildConfig.VERSION_NAME);
           String name =
-              "Any-Listen-Midnight-"
+              "TideListen-"
                   + ("dashboard".equals(BuildConfig.FLAVOR) ? "Car-" : "Phone-")
                   + version
                   + ".apk";
@@ -111,7 +111,7 @@ final class AppUpdater {
         HTTP.newCall(
             new Request.Builder()
                 .url(url)
-                .header("User-Agent", "Any-Listen-Midnight/" + BuildConfig.VERSION_NAME)
+                .header("User-Agent", "TideListen/" + BuildConfig.VERSION_NAME)
                 .build());
     active = call;
     call.enqueue(

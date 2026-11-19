@@ -7,6 +7,7 @@ import android.content.SharedPreferences;
 import android.text.TextUtils;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import okhttp3.HttpUrl;
@@ -137,9 +138,10 @@ final class LxSources {
     if (script.startsWith("\uFEFF")) script = script.substring(1);
     String comparable = script.trim();
     boolean unchanged = expected != null && sameScript(comparable, expected.getString("id"));
-    JSONArray platforms = unchanged ? expected.optJSONArray("platforms") : null;
-    if (platforms == null)
-      platforms = LxEngine.run(context, script, null).getJSONArray("platforms");
+    JSONObject capabilities =
+        unchanged && expected.has("qualities") && expected.has("platforms")
+            ? expected
+            : LxEngine.run(context, script, null, "auto");
     synchronized (this) {
       JSONArray list = rows();
       String id = expected == null ? "" : expected.getString("id");
@@ -165,12 +167,13 @@ final class LxSources {
           index < 0
               ? obj("id", UUID.randomUUID().toString(), "enabled", true)
               : list.getJSONObject(index);
-      if (unchanged && row.has("platforms") && link.equals(row.optString("url")))
+      if (unchanged && row.has("qualities") && link.equals(row.optString("url")))
         return new InstallResult("音源已是最新内容 · " + row.getString("name"), false);
       String name = LxEngine.tag(script, "name", row.optString("name", fallback));
       row.put("name", name)
           .put("version", LxEngine.tag(script, "version", ""))
-          .put("platforms", platforms)
+          .put("platforms", capabilities.getJSONArray("platforms"))
+          .put("qualities", capabilities.getJSONObject("qualities"))
           .put("url", link.isEmpty() ? null : link)
           .put("revision", row.optInt("revision") + 1);
       if (index < 0) list.put(row);
@@ -195,6 +198,8 @@ final class LxSources {
     switch (action) {
       case "enableSource":
         row.put("enabled", !row.getBoolean("enabled"));
+        list.remove(i);
+        list.put(row);
         break;
       case "removeSource":
         list.remove(i);
@@ -202,7 +207,11 @@ final class LxSources {
         break;
       case "raiseSource":
       case "lowerSource":
-        int dest = action.equals("raiseSource") ? i - 1 : i + 1;
+        if (!row.getBoolean("enabled")) return;
+        int step = action.equals("raiseSource") ? -1 : 1;
+        int dest = i + step;
+        while (dest >= 0 && dest < list.length() && !list.getJSONObject(dest).getBoolean("enabled"))
+          dest += step;
         if (dest < 0 || dest >= list.length()) return;
         list.put(i, list.getJSONObject(dest)).put(dest, row);
         break;
@@ -225,12 +234,56 @@ final class LxSources {
     throw new IOException("无法保存音源，请检查可用存储空间");
   }
 
-  static final class Candidate {
-    final String name, script;
+  // Use the same quality ladder as the desktop LX source loader.
+  private static final List<String> QUALITY_ORDER =
+      Arrays.asList("128k", "192k", "320k", "wav", "flac", "flac24bit", "dolby", "master");
 
-    Candidate(String name, String script) {
-      this.name = name;
-      this.script = script;
+  static List<String> playbackQualities(String preferred) {
+    int index = QUALITY_ORDER.indexOf(preferred);
+    if (index < 0) return java.util.Collections.singletonList("auto");
+    List<String> result = new ArrayList<>();
+    for (int i = index; i >= 0; i--) result.add(QUALITY_ORDER.get(i));
+    return result;
+  }
+
+  static boolean includes(JSONArray values, String value) {
+    if (values == null) return false;
+    for (int i = 0; i < values.length(); i++) if (value.equals(values.optString(i))) return true;
+    return false;
+  }
+
+  final class Candidate {
+    final String name, script;
+    final JSONObject row;
+    private JSONObject qualities;
+
+    Candidate(JSONObject row) throws JSONException {
+      this.row = row;
+      name = row.getString("name");
+      script = prefs.getString(key(row.getString("id")), "");
+      qualities = row.optJSONObject("qualities");
+    }
+
+    boolean supports(Context context, String platform, String quality) throws Exception {
+      if ("auto".equals(quality)) return true;
+      if (qualities == null) {
+        // Old installations only recorded platform names. Inspect on first use.
+        JSONObject info = LxEngine.run(context, script, null, "auto");
+        qualities = info.getJSONObject("qualities");
+        synchronized (LxSources.this) {
+          JSONArray latest = rows();
+          int index = find(latest, "id", row.getString("id"));
+          if (index >= 0
+              && latest.getJSONObject(index).optInt("revision") == row.optInt("revision")) {
+            latest
+                .getJSONObject(index)
+                .put("platforms", info.getJSONArray("platforms"))
+                .put("qualities", qualities);
+            prefs.edit().putString(ROWS, latest.toString()).apply();
+          }
+        }
+      }
+      return includes(qualities.optJSONArray(platform), quality);
     }
   }
 
@@ -239,16 +292,9 @@ final class LxSources {
     JSONArray list = rows();
     for (int i = 0; i < list.length(); i++) {
       JSONObject row = list.getJSONObject(i);
-      if (!row.getBoolean("enabled")) continue;
       JSONArray platforms = row.optJSONArray("platforms");
-      if (platforms != null) {
-        boolean supports = false;
-        for (int k = 0; k < platforms.length(); k++)
-          if (platform.equals(platforms.getString(k))) supports = true;
-        if (!supports) continue;
-      }
-      result.add(
-          new Candidate(row.getString("name"), prefs.getString(key(row.getString("id")), "")));
+      if (row.getBoolean("enabled") && (platforms == null || includes(platforms, platform)))
+        result.add(new Candidate(row));
     }
     return result;
   }

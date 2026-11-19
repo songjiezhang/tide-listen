@@ -1,9 +1,9 @@
 {
   "name": "desktop",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/songjiezhang/mylisten-midnight.git"
+    "url": "git+https://github.com/songjiezhang/tide-listen.git"
   },
   "main": "build-config/vite.config.ts",
   "scripts": {

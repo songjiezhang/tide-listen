@@ -62,21 +62,21 @@ const locales = [
 ]
 
 const commonMacLanguagesInfoPlistStrings = {
-  CFBundleDisplayName: 'Any Listen',
-  CFBundleName: 'Any Listen',
+  CFBundleDisplayName: 'TideListen',
+  CFBundleName: 'TideListen',
 }
 // const macLanguagesInfoPlistStrings = {
 //   en: {
-//     CFBundleDisplayName: 'Any Listen',
-//     CFBundleName: 'Any Listen',
+//     CFBundleDisplayName: 'TideListen',
+//     CFBundleName: 'TideListen',
 //   },
 //   zh_CN: {
-//     CFBundleDisplayName: 'Any Listen',
-//     CFBundleName: 'Any Listen',
+//     CFBundleDisplayName: 'TideListen',
+//     CFBundleName: 'TideListen',
 //   },
 //   zh_TW: {
-//     CFBundleDisplayName: 'Any Listen',
-//     CFBundleName: 'Any Listen',
+//     CFBundleDisplayName: 'TideListen',
+//     CFBundleName: 'TideListen',
 //   },
 // }
 const macLanguagesInfoPlistStrings = locales.reduce((acc, locale) => {

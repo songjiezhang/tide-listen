@@ -12,11 +12,11 @@ const rootPath = path.join(__dirname, '../../..')
  */
 const options = {
   appId: 'cn.toside.anylisten.desktop',
-  productName: 'any-listen',
+  productName: 'TideListen',
   extraMetadata: {
     name: 'any-listen',
     main: 'dist/electron/main.js',
-    description: 'A cross-platform private music playback service',
+    description: '汐听 TideListen 音乐播放器',
     author: {
       name: 'lyswhut',
       email: 'lyswhut@qq.com',
@@ -51,7 +51,7 @@ const options = {
     {
       provider: 'github',
       owner: 'songjiezhang',
-      repo: 'mylisten-midnight',
+      repo: 'tide-listen',
     },
   ],
 }
@@ -72,8 +72,8 @@ const winOptions = {
     allowToChangeInstallationDirectory: true,
     differentialPackage: true,
     license: './licenses/license.rtf',
-    shortcutName: 'Any Listen',
-    artifactName: `Any-Listen-Midnight-\${version}-\${arch}-Setup.\${ext}`,
+    shortcutName: '汐听 TideListen',
+    artifactName: `TideListen-\${version}-\${arch}-Setup.\${ext}`,
     installerSidebar: './resources/install_bg3.bmp',
   },
   portable: {
@@ -97,16 +97,16 @@ const linuxOptions = {
       // https://specifications.freedesktop.org/desktop-entry-spec/latest/example.html
       // https://developer.gnome.org/documentation/guidelines/maintainer/integrating.html#desktop-files
       entry: {
-        Name: 'Any Listen',
-        'Name[zh_CN]': 'Any Listen',
-        'Name[zh_TW]': 'Any Listen',
+        Name: 'TideListen',
+        'Name[zh_CN]': '汐听',
+        'Name[zh_TW]': '汐聽',
         Encoding: 'UTF-8',
         MimeType: 'x-scheme-handler/anylisten',
         StartupNotify: 'false',
       },
-      // Name: 'Any Listen',
-      // 'Name[zh_CN]': 'Any Listen',
-      // 'Name[zh_TW]': 'Any Listen',
+      // Name: 'TideListen',
+      // 'Name[zh_CN]': '汐听',
+      // 'Name[zh_TW]': '汐聽',
       // Encoding: 'UTF-8',
       // MimeType: 'x-scheme-handler/anylisten',
       // StartupNotify: 'false',
@@ -150,7 +150,7 @@ const macOptions = {
         path: '/Applications',
       },
     ],
-    title: 'Any Listen v${version}',
+    title: 'TideListen v${version}',
   },
 }
 

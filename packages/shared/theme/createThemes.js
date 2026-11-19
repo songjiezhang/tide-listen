@@ -8,7 +8,7 @@ import { createThemeColors } from './utils.js'
 const defaultThemes = [
   {
     id: 'midnight',
-    name: '午夜紫',
+    name: 'Midnight',
     isDark: true,
     config: {
       primary: 'rgb(139, 124, 255)',

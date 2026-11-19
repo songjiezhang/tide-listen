@@ -35,7 +35,7 @@ const showWinLegacyMessage = () => {
       buttons: [i18n.t('winLegacyMessage.button_goto'), i18n.t('winLegacyMessage.button_ok')],
     })
     if (result === 0) {
-      void openUrl('https://github.com/songjiezhang/mylisten-midnight/releases')
+      void openUrl('https://github.com/songjiezhang/tide-listen/releases')
     } else if (result === 1) {
       dataStore.set('winLegacyMessageShown', count + 1)
     }

@@ -1,29 +1,30 @@
-# Any Listen Midnight
+# 汐听 TideListen
 
-基于 [Any Listen](https://github.com/any-listen/any-listen) 的个人非商业改版，由 songjiezhang 维护。Windows 桌面端沿用上游的播放器和扩展机制。Android 手机和横屏车机使用独立的 Media3 客户端，三端可通过 WebDAV 共用歌单。
+基于 [Any Listen](https://github.com/any-listen/any-listen) 的个人非商业改版，由 songjiezhang 维护。默认主题为 Midnight。Windows 桌面端沿用上游的播放器和扩展机制。Android 手机和横屏车机使用独立的 Media3 客户端，三端可通过 WebDAV 共用歌单。
 
 ## 下载安装
 
-从 [Releases](https://github.com/songjiezhang/mylisten-midnight/releases/latest) 选择对应安装包。
+从 [Releases](https://github.com/songjiezhang/tide-listen/releases/latest) 选择对应安装包。
 
 | 设备 | 安装包文件名 | 软件内更新入口 |
 | --- | --- | --- |
-| Windows x64 | `Any-Listen-Midnight-版本-x64-Setup.exe` | 设置 → 软件更新 → 重新检查更新 |
-| Android 手机 | `Any-Listen-Midnight-Phone-版本.apk` | 设置 → 关于 → 检查更新 |
-| Android 横屏车机 | `Any-Listen-Midnight-Car-版本.apk` | 设置 → 关于 → 检查更新 |
+| Windows x64 | `TideListen-版本-x64-Setup.exe` | 设置 → 软件更新 → 重新检查更新 |
+| Android 手机 | `TideListen-Phone-版本.apk` | 设置 → 关于 → 检查更新 |
+| Android 横屏车机 | `TideListen-Car-版本.apk` | 设置 → 关于 → 检查更新 |
 
-Android 最低支持 6.0。车机需要支持直接安装 APK。首次从旧测试版升级请手动安装对应版本。从 0.11.0 开始，后续版本可在软件内下载和安装。Android 8.0 及以上首次应用内更新时，请在系统页面允许该应用安装更新，再返回播放器。Windows 安装包没有 Authenticode 签名，Release 附有 SHA-256 校验值。
+Android 最低支持 6.0。车机需要支持直接安装 APK。从 Any Listen Midnight 升级时，请下载对应安装包直接覆盖安装，保留歌单、设置和已导入的音源。旧 Android 更新器使用原仓库地址和文件名，迁移到汐听需要手动安装一次。0.12.0 起从本仓库检查更新。Android 8.0 及以上首次应用内更新时，请在系统页面允许该应用安装更新，再返回播放器。Windows 安装包没有 Authenticode 签名，Release 附有 SHA-256 校验值。
 
 ## 播放与歌单
 
-- 桌面端使用 Midnight 圆角主题，支持按链接更新已导入的洛雪 JS 音源，组合启用音源并按顺序尝试播放。桌面在线歌单和歌词通过扩展管理器获得。
+- 桌面端使用 Midnight 圆角主题，支持按链接更新已导入的洛雪 JS 音源，按启用音源的优先级依次解析。桌面在线歌单和歌词通过扩展管理器获得。
+- 手机和车机在「设置 → 音源」调整优先级。播放时依次尝试支持歌曲平台和所选音质的已启用音源，第一个可播放的音源成功后即停止。首选音质没有可用结果时，再尝试更低音质。「音源默认」直接使用每个音源的默认音质。
 - Android 首页内置 Online Metadata v0.4.9 的歌单模块，可浏览酷狗、酷我、网易、企鹅和咪咕的公开歌单。首页先显示缓存，再后台刷新。播放页使用同一扩展获取同步歌词。
 - 在 Android 设置中填写桌面端使用的 WebDAV 同步目录，即可按原名称查看「我的列表」。添加、收藏、改名等变更会自动同步。播放网络歌曲所需的 JS 音源由使用者自行从有权使用的来源导入。
 - 手机重新打开后恢复上次曲目、队列和进度。车机默认打开后继续播放，横屏左侧为封面和控制，右侧为滚动歌词。
 
 ## 界面预览
 
-桌面截图来自 Windows v0.11.0。手机和车机截图使用同版 APK 内的页面，以竖屏和横屏尺寸渲染。歌单和歌词均为演示内容，点击图片可查看原图。
+桌面截图来自 Windows v0.12.0。手机和车机截图使用同版 APK 内的页面，以竖屏和横屏尺寸渲染。歌单和歌词均为演示内容，点击图片可查看原图。
 
 ### Windows 桌面端
 
