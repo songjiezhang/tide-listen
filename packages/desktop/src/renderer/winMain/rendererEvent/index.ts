@@ -58,7 +58,7 @@ export const init = (sendEvent: (channelName: string, data: unknown) => void) =>
   onPlayListAction(ipc.playListAction)
   onPlayHistoryListAction(ipc.playHistoryListAction)
   onDislikeAction(ipc.dislikeAction)
-  onMusicListAction(ipc.listAction)
+  onMusicListAction((action) => ipc.listAction(action))
 }
 
 const _ipc = new Proxy(

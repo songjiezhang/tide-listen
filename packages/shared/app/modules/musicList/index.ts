@@ -187,8 +187,7 @@ export const applySyncedMusicList = async (
 ) => {
   await dbService.breakChangeBackup()
   if (!(await dbService.listDataOverwriteIfUnchanged(expected, replacement))) return false
-  musicListEvent.emitEvent('list_data_overwrite', replacement, true)
-  musicListEvent.list_changed()
+  musicListEvent.syncedListDataOverwritten(replacement)
   return true
 }
 
@@ -206,7 +205,9 @@ export const updateMusicBaseInfo = async (listId: string, musicInfos: AnyListen.
   await musicListEvent.list_music_base_info_update(listId, musicInfos)
 }
 
-export const onMusicListAction = (listAction: (action: AnyListen.IPCList.ActionList) => Promise<void>): (() => void) => {
+export const onMusicListAction = (
+  listAction: (action: AnyListen.IPCList.ActionList, isRemote?: boolean) => Promise<void>
+): (() => void) => {
   musicListEvent.on('listAction', listAction)
   return () => {
     musicListEvent.off('listAction', listAction)

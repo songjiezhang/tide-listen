@@ -76,7 +76,7 @@ export const createServerList = () => {
   } satisfies Partial<ExposeServerFunctions>
 
   // eslint-disable-next-line @typescript-eslint/unbound-method
-  onMusicListAction(actions.listAction)
+  onMusicListAction((action) => actions.listAction(action))
 
   return actions
 }

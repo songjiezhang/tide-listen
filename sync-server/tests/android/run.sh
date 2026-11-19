@@ -20,7 +20,10 @@ tool="$ANDROID_HOME/build-tools/35.0.0"
 sdk="$ANDROID_HOME/platforms/android-35/android.jar"
 classes="$root/packages/android/build/intermediates/javac/phoneRelease/compilePhoneReleaseJavaWithJavac/classes"
 mkdir "$testdir/classes" "$testdir/dex"
-javac -source 8 -target 8 -cp "$sdk:$classes" -d "$testdir/classes" sync-server/tests/android/SyncTest.java
+okhttp="$(find "${GRADLE_USER_HOME:-$HOME/.gradle}/caches/modules-2/files-2.1/com.squareup.okhttp3/okhttp/4.12.0" \
+  -name okhttp-4.12.0.jar -print -quit)"
+test -f "$okhttp"
+javac -source 8 -target 8 -cp "$sdk:$classes:$okhttp" -d "$testdir/classes" sync-server/tests/android/SyncTest.java
 "$tool/d8" --min-api 23 --lib "$sdk" --output "$testdir/dex" "$testdir/classes/io/github/anylisten/midnight/SyncTest.class"
 adb reverse tcp:8472 tcp:8472
 for role in phone car; do

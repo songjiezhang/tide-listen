@@ -4,6 +4,8 @@ const adminPortal = /^\/admin\/?$/.test(location.pathname)
 const portal = adminPortal ? '/admin' : '/login'
 let account
 let tab = 'devices'
+let codeRefresh
+let accountLoad = 0
 
 async function api(path, method = 'GET', body) {
   const response = await fetch(portal + '/api/' + path, {
@@ -109,64 +111,91 @@ function expiryValue(values) {
 
 const put = (kind, revision, data) => api(kind, 'PUT', { revision, data, operation: crypto.randomUUID() })
 
-async function devices() {
+function drawCodes() {
+  clearTimeout(codeRefresh)
+  const panel = $('pairing-codes')
+  panel.replaceChildren()
+  panel.hidden = !account?.codes.length
+  if (panel.hidden) return
+  panel.append(element('h2', '待使用的配对码'))
+  for (const code of account.codes) {
+    const row = element('div', '', 'row entry pair-result')
+    const label = element('output')
+    if (code.code) label.append(element('code', code.code))
+    label.append(element('span', code.account + ' · ' + expiryLabel(code.expires), 'dim'))
+    const actions = []
+    if (code.code) actions.push(button('复制配对码', async () => {
+      try {
+        await navigator.clipboard.writeText(code.code)
+        status('配对码已复制')
+      } catch {
+        const range = document.createRange()
+        range.selectNodeContents(label.querySelector('code'))
+        const selection = window.getSelection()
+        selection.removeAllRanges()
+        selection.addRange(range)
+        status('已选中配对码，请手动复制')
+      }
+    }))
+    actions.push(button('作废', async () => {
+      await api('revoke-code', 'POST', { id: code.id })
+      await refreshCodes()
+    }))
+    row.append(label, ...actions)
+    panel.append(row)
+  }
+  scheduleCodeRefresh()
+}
+
+function scheduleCodeRefresh() {
+  clearTimeout(codeRefresh)
+  if (account?.codes.length) {
+    codeRefresh = setTimeout(() => { void refreshCodes().catch(scheduleCodeRefresh) }, 15000)
+  }
+}
+
+async function refreshCodes() {
+  if (!account) return
+  const expected = ++accountLoad
+  let latest
+  try { latest = await api('account') }
+  catch (error) {
+    if (error.status !== 401) throw error
+    if (expected === accountLoad) await load()
+    return
+  }
+  if (expected !== accountLoad) return
+  const changed = JSON.stringify(account.codes) !== JSON.stringify(latest.codes)
+  account = latest
+  if (changed) drawCodes()
+  else scheduleCodeRefresh()
+}
+
+async function devices(uid) {
   const panel = section('生成一次性配对码')
   const form = element('form')
   if (account.admin) {
-    const label = element('label', '所属账号')
+    const label = element('label', '为账号生成配对码')
     const select = element('select')
     select.name = 'uid'
     for (const user of account.users.filter((item) => item.active)) {
       const option = element('option', user.name)
       option.value = user.id
-      option.selected = user.id === account.id
+      option.selected = user.id === (uid ?? account.id)
       select.append(option)
     }
     label.append(select)
     form.append(label)
   }
   expiryFields(form, account.expiry)
-  const result = element('div', '', 'row pair-result')
-  result.hidden = true
-  const output = element('output')
-  const code = element('code')
-  const expires = element('span', '', 'dim')
-  const copy = button('复制配对码', async () => {
-    try {
-      await navigator.clipboard.writeText(code.textContent)
-      status('配对码已复制')
-    } catch {
-      const range = document.createRange()
-      range.selectNodeContents(code)
-      const selection = window.getSelection()
-      selection.removeAllRanges()
-      selection.addRange(range)
-      status('已选中配对码，请手动复制')
-    }
-  })
-  output.append(code, expires)
-  result.append(output, copy)
   submit(form, '生成配对码', async (values) => {
     const body = { expiry: expiryValue(values) }
     if (account.admin) body.uid = Number(values.uid)
-    const created = await api('code', 'POST', body)
-    code.textContent = created.code
-    expires.textContent = expiryLabel(created.expires)
-    result.hidden = false
-    account = await api('account')
-    drawCodes()
+    await api('code', 'POST', body)
+    await refreshCodes()
+    status('已生成配对码')
   })
-  panel.append(form, result)
-  const codes = section('待使用的配对码')
-  function drawCodes() {
-    codes.replaceChildren(element('h2', '待使用的配对码'))
-    if (!account.codes.length) codes.append(element('p', '暂无待使用的配对码', 'dim'))
-    for (const code of account.codes) {
-      entry(codes, (code.account ?? account.account) + ' · ' + expiryLabel(code.expires),
-        button('作废', async () => { await api('revoke-code', 'POST', { id: code.id }); account = await api('account'); drawCodes() }))
-    }
-  }
-  drawCodes()
+  panel.append(form)
   const paired = section('已配对设备')
   if (!account.devices.length) paired.append(element('p', '暂无配对设备', 'dim'))
   for (const device of account.devices) {
@@ -195,8 +224,13 @@ async function users() {
   create.append(newUser)
   const listing = section('用户')
   for (const user of account.users.filter((item) => item.id !== account.id)) {
+    const actions = []
+    if (user.active) actions.push(button('生成配对码', async () => {
+      tab = 'devices'
+      await load(user.id)
+    }))
     entry(listing, user.name + ' · ' + (user.active ? '已启用' : '已停用'),
-      button(user.active ? '停用' : '启用', async () => {
+      ...actions, button(user.active ? '停用' : '启用', async () => {
         if (user.active && !confirm('停用该用户并撤销其设备和配对码？')) return
         await api('user-status', 'POST', { uid: user.id, active: !user.active })
         await load()
@@ -330,12 +364,17 @@ async function backups() {
   panel.append(form)
 }
 
-async function load() {
-  try { account = await api('account') }
+async function load(uid) {
+  clearTimeout(codeRefresh)
+  const expected = ++accountLoad
+  let latest
+  try { latest = await api('account') }
   catch (error) {
     if (error.status !== 401) throw error
-    account = undefined
   }
+  if (expected !== accountLoad) return
+  account = latest
+  drawCodes()
   const title = adminPortal
     ? (account ? '同步管理' : '管理员登录')
     : (account ? '我的同步' : '账号登录')
@@ -347,7 +386,7 @@ async function load() {
   if (!account) return
   $('content').replaceChildren()
   for (const node of document.querySelectorAll('[data-tab]')) node.setAttribute('aria-current', String(node.dataset.tab === tab))
-  await { devices, users, lists, sources, backups }[tab]()
+  await { devices, users, lists, sources, backups }[tab](uid)
 }
 
 for (const node of document.querySelectorAll('[data-tab]')) {

@@ -53,6 +53,12 @@ export class Event extends _Event {
     // TODO: verifyListDataOverwrite local and remote
   }
 
+  syncedListDataOverwritten(data: AnyListen.List.ListDataFull) {
+    this.emitEvent('list_data_overwrite', data, true)
+    this.emitEvent('listAction', { action: 'list_data_overwrite', data }, true)
+    this.list_changed()
+  }
+
   /**
    * 批量创建列表
    * @param position 列表位置
@@ -352,7 +358,7 @@ export class Event extends _Event {
    * 列表操作
    * @param action
    */
-  async listAction(action: AnyListen.IPCList.ActionList) {
+  async listAction(action: AnyListen.IPCList.ActionList, isRemote = false) {
     switch (action.action) {
       case 'list_data_overwrite':
         await this.list_data_overwrite(action.data)
@@ -400,7 +406,7 @@ export class Event extends _Event {
         await this.list_music_clear(action.data)
         break
     }
-    this.emitEvent('listAction', action)
+    this.emitEvent('listAction', action, isRemote)
   }
 }
 

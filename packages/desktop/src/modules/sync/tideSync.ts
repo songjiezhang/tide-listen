@@ -3,6 +3,8 @@ import { dirname, join } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
 import { safeStorage } from 'electron'
+import { extensionEvent } from '@any-listen/app/modules/extension'
+import { LX_SOURCE_LOADER } from '@any-listen/common/command'
 import { getSyncWebDAVState, syncWebDAVEvent } from '@any-listen/app/modules/sync'
 import { applySyncedMusicList, onMusicListAction } from '@any-listen/app/modules/musicList'
 import { workers } from '@any-listen/app/modules/worker'
@@ -14,6 +16,8 @@ import { mergeLibrary, sameValue } from './mergeLibrary'
 
 type Library = AnyListen.List.ListDataFull
 type Source = AnyListen.IPCSync.TideSource
+type Kind = 'lists' | 'sources'
+type Revisions = Partial<Record<Kind, number>>
 interface Snapshot<T> { revision: number; data: T | null }
 interface Connection {
   url: string
@@ -22,6 +26,7 @@ interface Connection {
   library: string
   started: boolean
   sources: boolean
+  listRevision?: number
   sourceRevision?: number
   sourceHash?: string
 }
@@ -39,7 +44,9 @@ let message = ''
 let pendingSources: Array<{ name: string; enabled: boolean }> | undefined
 let pendingRevision: number | undefined
 let inProgress: Promise<unknown> | undefined
-let suppressChange = false
+let watching: AbortController | undefined
+const dirty = new Set<Kind>()
+const retries = new Map<Kind, ReturnType<typeof setTimeout>>()
 
 const fileName = () => join(appState.dataPath, 'tidelisten-sync.json')
 const digest = (sources: Source[]) => {
@@ -52,17 +59,19 @@ class SyncError extends Error {
 function serverUrl(text: string) {
   const url = new URL(text.trim())
   if ((url.protocol !== 'https:' && !(url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname))) ||
-      url.username || url.password || url.hash || url.search || !['/', '/admin', '/admin/'].includes(url.pathname)) {
+      url.username || url.password || url.hash || url.search || !/^\/(?:login\/?|admin\/?)?$/.test(url.pathname)) {
     throw Error('请输入同步服务的 HTTPS 地址')
   }
   return url.origin
 }
 
-async function request<T>(url: string, path: string, method = 'GET', token?: string, body?: unknown): Promise<T> {
+async function request<T>(
+  url: string, path: string, method = 'GET', token?: string, body?: unknown, signal = AbortSignal.timeout(18000)
+): Promise<T> {
   const response = await fetch(url + '/api/v1/' + path, {
     method,
     redirect: 'error',
-    signal: AbortSignal.timeout(18000),
+    signal,
     headers: {
       ...(token ? { authorization: 'Bearer ' + token } : {}),
       ...(body ? { 'content-type': 'application/json' } : {}),
@@ -88,12 +97,90 @@ async function save() {
   await fs.rename(path + '.tmp', path)
 }
 
-function schedule(delay = 15000) {
+function stopWatching() {
+  watching?.abort()
+  watching = undefined
   if (timer) clearTimeout(timer)
-  if (!connection?.started) return
-  timer = setTimeout(() => {
-    void tideSync({ action: 'sync' }).catch(() => {})
-  }, delay)
+}
+
+function schedule(delay = 0) {
+  stopWatching()
+  if (!connection?.started || inProgress) return
+  timer = setTimeout(() => { void syncInBackground() }, delay)
+}
+
+function queue(kind: Kind) {
+  if (!connection?.started || (kind === 'sources' && !connection.sources)) return
+  clearRetry(kind)
+  dirty.add(kind)
+  schedule(800)
+}
+
+function clearRetry(kind: Kind) {
+  const retry = retries.get(kind)
+  if (retry) clearTimeout(retry)
+  retries.delete(kind)
+}
+
+function retryKind(scope: Connection, kind: Kind) {
+  clearRetry(kind)
+  retries.set(kind, setTimeout(() => {
+    if (connection === scope) queue(kind)
+  }, 15000))
+}
+
+async function syncInBackground() {
+  const scope = connection
+  if (!scope?.started || inProgress) return
+  if (dirty.size) {
+    let failed = false
+    const kinds = [...dirty]
+    inProgress = (async () => {
+      for (const kind of kinds) {
+        dirty.delete(kind)
+        try {
+          if (kind === 'lists') await syncLists(scope)
+          else if (scope.sources) await syncSources(scope)
+        } catch (error) {
+          if (!dirty.has(kind)) retryKind(scope, kind)
+          message = error instanceof Error ? error.message : String(error)
+          failed = true
+        }
+      }
+    })()
+    try {
+      await inProgress
+      if (!failed) message = '同步已完成'
+    } finally {
+      inProgress = undefined
+      schedule()
+    }
+    return
+  }
+
+  const since = new URLSearchParams()
+  if (!retries.has('lists')) since.set('lists', String(scope.listRevision ?? -1))
+  if (scope.sources && !retries.has('sources')) since.set('sources', String(pendingRevision ?? scope.sourceRevision ?? -1))
+  if (!since.size) return
+  const controller = new AbortController()
+  watching = controller
+  let delay = 0
+  try {
+    const latest = await request<Revisions>(scope.url, 'changes?' + since.toString(), 'GET', scope.token,
+      undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(28000)]))
+    if (watching !== controller) return
+    for (const kind of ['lists', 'sources'] as const) {
+      if (typeof latest[kind] === 'number' && latest[kind] !== Number(since.get(kind))) dirty.add(kind)
+    }
+  } catch (error) {
+    if (watching !== controller) return
+    message = error instanceof SyncError && error.status === 404
+      ? '请更新同步服务以接收远端变更'
+      : error instanceof Error ? error.message : String(error)
+    delay = 15000
+  } finally {
+    if (watching === controller) schedule(delay)
+  }
 }
 
 export async function startTideSync() {
@@ -107,10 +194,22 @@ export async function startTideSync() {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') message = '读取配对凭据失败，请重新配对'
   }
   if (connection?.started && appState.appSetting['sync.webdav.enable']) updateSetting({ 'sync.webdav.enable': false })
-  onMusicListAction(async () => {
-    if (!suppressChange) schedule(1600)
+  onMusicListAction(async (action, isRemote) => {
+    if (!isRemote && !(action.action === 'list_update' && action.data.sync)) queue('lists')
   })
-  schedule(1000)
+  extensionEvent.on('extensionEvent', (event) => {
+    if (event.action === 'extenstionSettingUpdated' && event.data.id === LX_SOURCE_LOADER &&
+        event.data.keys.some((key) => key === 'importedScriptSources' || key === 'enabledScripts')) queue('sources')
+  })
+  if (connection?.started) {
+    if (!base || !sameValue(base, await workers.dbService.getAllListData())) dirty.add('lists')
+    if (connection.sources) {
+      try {
+        if (connection.sourceHash !== digest(await workers.extensionService.exportTideSources())) dirty.add('sources')
+      } catch { /* Keep playlist sync available while the extension is disabled. */ }
+    }
+    schedule()
+  }
 }
 
 async function syncLists(scope: Connection, migrating?: Library) {
@@ -119,28 +218,26 @@ async function syncLists(scope: Connection, migrating?: Library) {
     const local = await workers.dbService.getAllListData()
     if (migrating && !sameValue(local, migrating)) throw Error('歌单已变更，请重新预览迁移')
     const merged = mergeLibrary(base, local, remote.data)
+    let revision = remote.revision
     if (!sameValue(merged, remote.data)) {
-      try { await put(scope, 'lists', remote.revision, merged) }
+      try { revision = (await put(scope, 'lists', revision, merged)).revision }
       catch (error) {
         if (error instanceof SyncError && error.status === 409) continue
         throw error
       }
     }
-    suppressChange = true
-    try {
-      // Preserve edits made during the request and upload them on the next pass.
-      for (let round = 0; round < 5; round++) {
-        const latest = await workers.dbService.getAllListData()
-        const applied = mergeLibrary(local, latest, merged)
-        if (!sameValue(latest, applied) && !(await applySyncedMusicList(latest, applied))) continue
-        base = sameValue(latest, local) ? applied : merged
-        await save()
-        return
-      }
-      throw Error('本机歌单正在编辑，请稍后重试')
-    } finally {
-      suppressChange = false
+    // Keep edits made while the remote request was in flight.
+    for (let round = 0; round < 5; round++) {
+      const latest = await workers.dbService.getAllListData()
+      const applied = mergeLibrary(local, latest, merged)
+      if (!sameValue(latest, applied) && !(await applySyncedMusicList(latest, applied))) continue
+      base = merged
+      scope.listRevision = revision
+      if (!sameValue(applied, merged)) dirty.add('lists')
+      await save()
+      return
     }
+    throw Error('本机歌单正在编辑，请稍后重试')
   }
   throw Error('歌单正在被其他设备修改，请稍后重试')
 }
@@ -220,6 +317,9 @@ async function operation(options: AnyListen.IPCSync.TideOptions): Promise<AnyLis
     }
     case 'disconnect':
       connection = undefined
+      dirty.clear()
+      clearRetry('lists')
+      clearRetry('sources')
       base = undefined
       preview = undefined
       pendingSources = undefined
@@ -271,6 +371,8 @@ async function operation(options: AnyListen.IPCSync.TideOptions): Promise<AnyLis
       if (options.enabled) await workers.extensionService.exportTideSources()
       scope.sources = options.enabled
       if (!options.enabled) {
+        dirty.delete('sources')
+        clearRetry('sources')
         scope.sourceRevision = undefined
         scope.sourceHash = undefined
         pendingSources = undefined
@@ -286,9 +388,15 @@ async function operation(options: AnyListen.IPCSync.TideOptions): Promise<AnyLis
       break
     case 'sync':
       if (!scope?.started) return state()
-      await syncLists(scope)
+      dirty.delete('lists')
+      clearRetry('lists')
+      await syncLists(scope).catch((error) => { retryKind(scope, 'lists'); throw error })
       message = '歌单已同步'
-      if (scope.sources) await syncSources(scope)
+      if (scope.sources) {
+        dirty.delete('sources')
+        clearRetry('sources')
+        await syncSources(scope).catch((error) => { retryKind(scope, 'sources'); throw error })
+      }
       break
   }
   return state()
@@ -296,9 +404,11 @@ async function operation(options: AnyListen.IPCSync.TideOptions): Promise<AnyLis
 
 export async function tideSync(options: AnyListen.IPCSync.TideOptions): Promise<AnyListen.IPCSync.TideState> {
   if (options.action === 'status') return state()
+  if (inProgress) await inProgress.catch(() => {})
   if (inProgress) throw Error('同步正在进行，请稍后再试')
+  stopWatching()
   inProgress = operation(options)
   try { return await inProgress as AnyListen.IPCSync.TideState }
   catch (error) { message = error instanceof Error ? error.message : String(error); throw error }
-  finally { inProgress = undefined; schedule() }
+  finally { inProgress = undefined; schedule(dirty.size ? 800 : 0) }
 }

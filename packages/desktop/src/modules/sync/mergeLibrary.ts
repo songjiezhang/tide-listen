@@ -1,7 +1,9 @@
+import { isDeepStrictEqual } from 'node:util'
+
 type Library = AnyListen.List.ListDataFull
 type Playlist = Library['defaultList'] | Library['loveList'] | Library['userList'][number]
 
-export const sameValue = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right)
+export const sameValue = isDeepStrictEqual
 
 const mapById = <Row extends { id: string | number }>(rows: Row[]) => new Map(rows.map((row) => [String(row.id), row]))
 

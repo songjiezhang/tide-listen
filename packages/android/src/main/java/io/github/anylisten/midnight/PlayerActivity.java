@@ -19,6 +19,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 import java.io.*;
 import java.util.*;
 import java.util.concurrent.*;
+import okhttp3.Call;
 import org.json.*;
 
 public final class PlayerActivity extends Activity {
@@ -39,6 +40,8 @@ public final class PlayerActivity extends Activity {
   private String status = "", syncStatus = "", sourceUpdateStatus = "";
   private String importTarget = "default";
   private boolean syncRunning, playlistReady, savingCatalog;
+  private boolean remoteListsChanged, remoteSourcesChanged, checkLocalSources;
+  private Call changeWatch;
   private final Runnable autoSync = () -> sync(false);
   private final Runnable tick =
       new Runnable() {
@@ -184,6 +187,7 @@ public final class PlayerActivity extends Activity {
     visible = true;
     resumeOnOpen();
     tick.run();
+    checkLocalSources = true;
     if (playlistReady) scheduleSync(700);
   }
 
@@ -192,7 +196,8 @@ public final class PlayerActivity extends Activity {
     visible = false;
     page.setKeepScreenOn(false);
     main.removeCallbacks(tick);
-    if (store.desktop.pendingCount() == 0) main.removeCallbacks(autoSync);
+    cancelChangeWatch();
+    if (store.desktop.pendingCount() == 0 && !checkLocalSources) main.removeCallbacks(autoSync);
     super.onPause();
   }
 
@@ -224,6 +229,7 @@ public final class PlayerActivity extends Activity {
     ready = false;
     appUpdater.close();
     worker.shutdown();
+    cancelChangeWatch();
     syncWorker.shutdown();
     catalogWorker.shutdownNow();
     cancelLyrics();
@@ -402,6 +408,24 @@ public final class PlayerActivity extends Activity {
         });
   }
 
+  private void editSources(String label, Job edit) {
+    editSources(label, edit, false);
+  }
+
+  private void editSources(String label, Job edit, boolean batch) {
+    runJob(label, () -> {
+      try {
+        return edit.run();
+      } finally {
+        main.post(() -> {
+          if (isDestroyed() || !TideSync.sourcesEnabled(store)) return;
+          checkLocalSources = true;
+          scheduleSync(400);
+        });
+      }
+    }, batch);
+  }
+
   private final class Actions {
     @JavascriptInterface
     public String songs(String listId) throws JSONException {
@@ -529,7 +553,7 @@ public final class PlayerActivity extends Activity {
             });
         break;
       case "updateSources":
-        runJob("正在更新音源…", () -> store.sources.updateAll(this), true);
+        editSources("正在更新音源…", () -> store.sources.updateAll(this), true);
         break;
       case "editLink":
         sourceUrl(store.sources.target(arg, ""));
@@ -542,7 +566,7 @@ public final class PlayerActivity extends Activity {
       case "enableSource":
       case "raiseSource":
       case "lowerSource":
-        runJob(
+        editSources(
             "正在保存音源设置",
             () -> {
               store.sources.change(arg, action);
@@ -557,7 +581,7 @@ public final class PlayerActivity extends Activity {
             .setPositiveButton(
                 "移除",
                 (dialog, which) ->
-                    runJob(
+                    editSources(
                         "正在移除音源",
                         () -> {
                           store.sources.change(arg, action);
@@ -725,7 +749,7 @@ public final class PlayerActivity extends Activity {
             return "已导入 " + rows.length() + " 首歌曲";
           });
     } else if (uri != null && kind == SCRIPT) {
-      runJob(
+      editSources(
           "正在验证音源",
           () ->
               store.sources.install(
@@ -784,7 +808,7 @@ public final class PlayerActivity extends Activity {
   }
 
   private void downloadSource(String link, JSONObject target) {
-    runJob("正在下载并验证音源", () -> store.sources.installFromLink(this, link, target));
+    editSources("正在下载并验证音源", () -> store.sources.installFromLink(this, link, target));
   }
 
   private void addOnline() {
@@ -850,7 +874,11 @@ public final class PlayerActivity extends Activity {
     runJob(label, () -> {
       String result = task.run();
       main.post(() -> {
-        if (!isDestroyed()) scheduleSync(500);
+        if (isDestroyed()) return;
+        remoteListsChanged = false;
+        remoteSourcesChanged = false;
+        checkLocalSources = TideSync.sourcesEnabled(store);
+        scheduleSync(500);
       });
       return result;
     });
@@ -929,42 +957,101 @@ public final class PlayerActivity extends Activity {
         });
   }
 
+  private void cancelChangeWatch() {
+    if (changeWatch == null) return;
+    changeWatch.cancel();
+    changeWatch = null;
+  }
+
   private void scheduleSync(long delay) {
     if (isDestroyed() || !TideSync.configured(store)) return;
+    cancelChangeWatch();
     main.removeCallbacks(autoSync);
     main.postDelayed(autoSync, delay);
   }
 
+  private void watchChanges() {
+    if (!visible || changeWatch != null) return;
+    try {
+      changeWatch = TideSync.watch(store, (call, lists, sources, error) -> main.post(() -> {
+        if (isDestroyed() || call != changeWatch) return;
+        changeWatch = null;
+        if (error != null) {
+          syncStatus = error;
+          refresh();
+          scheduleSync(15000);
+          return;
+        }
+        remoteListsChanged |= lists;
+        remoteSourcesChanged |= sources;
+        scheduleSync(0);
+      }));
+    } catch (Exception error) {
+      syncStatus = error.getMessage();
+      refresh();
+      scheduleSync(15000);
+    }
+  }
+
   private void sync(boolean manual) {
-    if (syncRunning || !TideSync.configured(store)) return;
+    if (syncRunning || !playlistReady || !TideSync.configured(store)) return;
+    boolean tide = TideSync.enabled(store);
+    boolean lists = manual || remoteListsChanged || store.desktop.pendingCount() > 0;
+    boolean sources = TideSync.sourcesEnabled(store) && (manual || remoteSourcesChanged);
+    boolean checkSources = TideSync.sourcesEnabled(store) && checkLocalSources;
+    if (tide && !lists && !sources && !checkSources) {
+      watchChanges();
+      return;
+    }
+    cancelChangeWatch();
+    remoteListsChanged = false;
+    remoteSourcesChanged = false;
+    checkLocalSources = false;
     syncRunning = true;
     refresh();
-    syncWorker.execute(
-        () -> {
-          String message;
-          boolean ok;
+    syncWorker.execute(() -> {
+      String message = "";
+      boolean retryLists = false, retrySources = false;
+      if (tide) {
+        if (lists) {
           try {
-            message = TideSync.sync(store, this);
-            ok = true;
-          } catch (Exception e) {
-            message = e.getMessage() != null ? e.getMessage() : "歌单同步失败";
-            ok = false;
+            TideSync.syncLists(store);
+            message = "汐听歌单已同步";
+          } catch (Exception error) {
+            message = error.getMessage();
+            retryLists = true;
           }
-          String result = message;
-          boolean synced = ok;
-          main.post(
-              () -> {
-                if (isDestroyed()) return;
-                syncRunning = false;
-                syncStatus = synced ? result : store.desktop.pendingCount() > 0 ? "修改待同步" : "同步失败";
-                if (manual || !synced) status = result;
-                if (manual) Toast.makeText(this, result, Toast.LENGTH_LONG).show();
-                refresh();
-                transport();
-                if (visible)
-                  scheduleSync(store.desktop.pendingCount() > 0 ? (synced ? 400 : 15000) : 60000);
-              });
-        });
+        }
+        try {
+          if (sources || checkSources && TideSync.hasLocalSourceChanges(store)) {
+            TideSync.syncSources(store, this);
+            if (!retryLists) message = "汐听同步已完成";
+          }
+        } catch (Exception error) {
+          if (!retryLists) message = error.getMessage();
+          retrySources = true;
+        }
+      } else {
+        try { message = DavSync.sync(store); }
+        catch (Exception error) { message = error.getMessage(); retryLists = true; }
+      }
+      boolean synced = !retryLists && !retrySources;
+      String result = message == null ? "同步失败" : message;
+      boolean listsFailed = retryLists, sourcesFailed = retrySources;
+      main.post(() -> {
+        if (isDestroyed()) return;
+        syncRunning = false;
+        remoteListsChanged |= listsFailed;
+        remoteSourcesChanged |= sourcesFailed;
+        if (!synced) syncStatus = store.desktop.pendingCount() > 0 ? "修改待同步" : result;
+        else if (!result.isEmpty()) syncStatus = result;
+        if (manual || !synced) status = result;
+        if (manual) Toast.makeText(this, result, Toast.LENGTH_LONG).show();
+        refresh();
+        transport();
+        if (visible) scheduleSync(!synced ? 15000 : tide ? 0 : 60000);
+      });
+    });
   }
 
   private void editName(JSONObject info) {

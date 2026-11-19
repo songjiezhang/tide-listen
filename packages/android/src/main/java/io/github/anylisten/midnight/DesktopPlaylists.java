@@ -285,6 +285,14 @@ final class DesktopPlaylists {
     return !raw.isEmpty();
   }
 
+  synchronized int tideRevision() {
+    try {
+      return Integer.parseInt(revision);
+    } catch (NumberFormatException error) {
+      return -1;
+    }
+  }
+
   synchronized int pendingCount() {
     return pending.length();
   }

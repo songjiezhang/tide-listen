@@ -24,9 +24,9 @@ assert.equal(setup.status, 0, setup.stderr)
 const child = spawn(process.execPath, [app], { env, stdio: 'inherit' })
 
 async function request(path, settings = {}) {
-  const { method = 'GET', body, cookie, token, status = 200, origin = url } = settings
+  const { method = 'GET', body, cookie, token, status = 200, origin = url, signal } = settings
   const response = await fetch(url + path, {
-    method, headers: {
+    method, signal, headers: {
       ...(cookie ? { cookie } : {}), ...(token ? { authorization: 'Bearer ' + token } : {}),
       ...(body ? { 'content-type': 'application/json', origin } : {}),
     }, ...(body ? { body: JSON.stringify(body) } : {}),
@@ -86,7 +86,15 @@ try {
   db.prepare('INSERT INTO settings VALUES(?,?)').run('pairMinutes', 27)
   assert.deepEqual((await adminAccount()).data.expiry, { unit: 'minutes', amount: 27 })
   const desktopCode = await addCode('/admin', owner, { uid: memberId })
+  const createdForMember = (await adminAccount()).data.codes.find((row) => row.code === desktopCode.code)
+  assert.equal(createdForMember.uid, memberId)
+  assert.equal(createdForMember.account, 'member')
+  assert.equal((await request('/login/api/account', { cookie: user })).data.codes[0].code, desktopCode.code)
+  const ciphertext = db.prepare('SELECT value FROM code_secrets WHERE code_id=?').get(createdForMember.id).value
+  assert(!ciphertext.includes(desktopCode.code))
   const desktop = await pair(desktopCode.code, 'Windows')
+  assert.equal(db.prepare('SELECT value FROM code_secrets WHERE code_id=?').get(createdForMember.id), undefined)
+  assert.equal((await adminAccount()).data.codes.some((row) => row.id === createdForMember.id), false)
   assert.equal(desktop.account, 'member')
   assert(desktopCode.expires - Date.now() / 1000 > 26 * 60)
   await pair(desktopCode.code, 'Reuse', 400)
@@ -109,11 +117,14 @@ try {
   const newDefault = { unit: 'never' }
   await post('/admin/api/default-expiry', { expiry: newDefault }, { cookie: owner })
   assert.deepEqual((await adminAccount()).data.expiry, newDefault)
-  const pending = await addCode('/login', user)
+  const pending = await addCode('/login', user, { uid: (await adminAccount()).data.id })
   assert.equal(pending.expires, null)
   const active = (await request('/login/api/account', { cookie: user })).data.codes
   assert.equal(active.length, 1)
   assert.equal(active[0].expires, null)
+  assert.equal(active[0].uid, memberId)
+  assert.equal(active[0].code, pending.code)
+  assert.equal((await adminAccount()).data.codes.find((row) => row.id === active[0].id).code, undefined)
   const phone = await pair(pending.code, 'Android')
   await pair(pending.code, 'Reuse unlimited', 400)
 
@@ -122,12 +133,26 @@ try {
   assert.equal(unused.length, 1)
   await post('/login/api/revoke-code', { id: unused[0].id }, { cookie: user })
   await pair(unneeded.code, 'Revoked code', 400)
+  assert.equal(db.prepare('SELECT value FROM code_secrets WHERE code_id=?').get(unused[0].id), undefined)
   const car = await pair((await addCode('/login', user, { expiry: { unit: 'hours', amount: 2 } })).code, 'Android-Car')
   assert.equal(phone.library, desktop.library)
   assert.equal((await info(car.token, 'lists')).data.revision, 0)
+  await request('/api/v1/changes?lists=0', { status: 401 })
+  await request('/api/v1/changes?lists=invalid', { token: car.token, status: 400 })
+  assert.deepEqual((await info(car.token, 'changes?lists=-1')).data, { lists: 0 })
+  const wrongAccount = await pair((await addCode('/admin', owner)).code, 'Admin device')
+  const controller = new AbortController()
+  const otherAccount = request('/api/v1/changes?lists=0', { token: wrongAccount.token, signal: controller.signal })
+  const changing = info(car.token, 'changes?lists=0&sources=0')
+  await sleep(75)
   const operation = randomUUID()
   assert.equal((await put('lists', desktop.token, 0, library, 200, operation)).data.revision, 1)
+  assert.deepEqual((await changing).data, { lists: 1, sources: 0 })
+  assert.equal(await Promise.race([otherAccount.then(() => false), sleep(120, true)]), true)
+  controller.abort()
+  await assert.rejects(otherAccount, { name: 'AbortError' })
   assert.equal((await put('lists', desktop.token, 0, library, 200, operation)).data.revision, 1)
+  assert.equal((await put('lists', desktop.token, 1, library)).data.revision, 1)
   assert.deepEqual((await info(phone.token, 'lists')).data.data, library)
   assert.deepEqual((await info(car.token, 'lists')).data.data, library)
   const amended = structuredClone(library)
@@ -137,7 +162,10 @@ try {
   assert.deepEqual((await info(car.token, 'lists')).data.data, amended)
   assert.equal((await request('/admin/api/lists', { cookie: owner })).data.data, null)
   const sources = [{ name: '测试', script: '/* test-fixture-js */\nconst unrelated = 1', url: 'https://example.com/test.js', enabled: true }]
+  const sourceChange = info(phone.token, 'changes?lists=2&sources=0')
+  await sleep(75)
   await put('sources', desktop.token, 0, sources)
+  assert.deepEqual((await sourceChange).data, { lists: 2, sources: 1 })
   assert.equal((await info(car.token, 'sources')).data.data[0].script, sources[0].script)
   const encrypted = db.prepare("SELECT data FROM libraries WHERE kind='sources'").get().data
   assert(!encrypted.includes('test-fixture-js') && !encrypted.includes('example.com'))
@@ -147,7 +175,7 @@ try {
   await post('/admin/api/user-status', { uid: memberId, active: false }, { cookie: owner })
   await request('/api/v1/lists', { token: desktop.token, status: 401 })
   await request('/login/api/account', { cookie: user, status: 401 })
-  console.log('PASS 登录入口、权限隔离、一次性配对、有效期、撤销、并发版本检查、歌单和音源加密')
+  console.log('PASS 登录及权限隔离、代用户配对、配对码加密与单次使用、按账号推送歌单和音源版本')
 } finally {
   child.kill()
   await once(child, 'exit')

@@ -24,6 +24,10 @@ final class TideSync {
 
   private static final class Conflict extends IOException {}
 
+  interface ChangeListener {
+    void changed(Call call, boolean lists, boolean sources, String error);
+  }
+
   private final MusicStore store;
   private final String address, token;
 
@@ -47,6 +51,15 @@ final class TideSync {
     return address.isEmpty() ? "" : "tide\n" + address + "\n" + prefs.getString(LIBRARY, "");
   }
 
+  static boolean sourcesEnabled(MusicStore store) {
+    return store.prefs.getBoolean(SOURCES, false);
+  }
+
+  static boolean hasLocalSourceChanges(MusicStore store) throws Exception {
+    return sourcesEnabled(store) && !digest(store.sources.exportTideSources())
+        .equals(store.prefs.getString(SOURCE_HASH, ""));
+  }
+
   static JSONObject status(MusicStore store) throws JSONException {
     return obj(
         "address", store.prefs.getString(ADDRESS, ""),
@@ -62,8 +75,7 @@ final class TideSync {
         || (!url.isHttps() && !url.host().equals("127.0.0.1") && !url.host().equals("localhost"))
         || !url.username().isEmpty() || !url.password().isEmpty()
         || url.fragment() != null || url.query() != null
-        || !(url.encodedPath().equals("/") || url.encodedPath().equals("/admin")
-             || url.encodedPath().equals("/admin/"))) {
+        || !url.encodedPath().matches("/(?:(?:admin|login)/?)?")) {
       throw new IOException("请输入同步服务的 HTTPS 地址");
     }
     return url.newBuilder().encodedPath("/").build().toString();
@@ -83,6 +95,39 @@ final class TideSync {
       if (!response.isSuccessful()) throw new IOException(reply.optString("error", "同步请求失败"));
       return reply;
     }
+  }
+
+  static Call watch(MusicStore store, ChangeListener listener) throws Exception {
+    TideSync client = new TideSync(store);
+    int lists = store.desktop.tideRevision();
+    int sources = pending(store).optInt(0, store.prefs.getInt(SOURCE_REV, -1));
+    boolean watchSources = sourcesEnabled(store);
+    HttpUrl.Builder url = HttpUrl.get(client.address + "api/v1/changes").newBuilder()
+        .addQueryParameter("lists", Integer.toString(lists));
+    if (watchSources) url.addQueryParameter("sources", Integer.toString(sources));
+    Request request = new Request.Builder().url(url.build())
+        .header("Authorization", "Bearer " + client.token).build();
+    Call call = CLIENT.newCall(request);
+    call.enqueue(new Callback() {
+      @Override
+      public void onFailure(Call active, IOException error) {
+        listener.changed(active, false, false, "无法连接同步服务");
+      }
+
+      @Override
+      public void onResponse(Call active, Response incoming) {
+        try (Response response = incoming) {
+          if (response.code() == 404) throw new IOException("请更新同步服务以接收远端变更");
+          JSONObject result = new JSONObject(MusicStore.text(response.body().byteStream(), 8192));
+          if (!response.isSuccessful()) throw new IOException(result.optString("error", "同步请求失败"));
+          listener.changed(active, result.getInt("lists") != lists,
+              watchSources && result.getInt("sources") != sources, null);
+        } catch (IOException | JSONException error) {
+          listener.changed(active, false, false, error.getMessage());
+        }
+      }
+    });
+    return call;
   }
 
   static String pair(MusicStore store, String input, String code) throws Exception {
@@ -137,13 +182,22 @@ final class TideSync {
   }
 
   static String sync(MusicStore store, Context context) throws Exception {
+    if (!enabled(store)) return DavSync.sync(store);
+    syncLists(store);
+    if (sourcesEnabled(store)) syncSources(store, context);
+    return "汐听歌单已同步";
+  }
+
+  static void syncLists(MusicStore store) throws Exception {
     synchronized (DavSync.class) {
-      if (!enabled(store)) return DavSync.sync(store);
-      TideSync client = new TideSync(store);
-      client.lists();
+      new TideSync(store).lists();
       store.prefs.edit().putLong("lastSync", System.currentTimeMillis()).apply();
-      if (store.prefs.getBoolean(SOURCES, false)) client.sources(context, null);
-      return "汐听歌单已同步";
+    }
+  }
+
+  static void syncSources(MusicStore store, Context context) throws Exception {
+    synchronized (DavSync.class) {
+      if (sourcesEnabled(store)) new TideSync(store).sources(context, null);
     }
   }
 
@@ -175,7 +229,7 @@ final class TideSync {
           continue;
         }
       }
-      if (data != null && playlists.base(Integer.toString(revision)).isEmpty()) {
+      if (playlists.tideRevision() != revision) {
         playlists.acceptRemote(remote, Integer.toString(revision), 0);
       }
       return;

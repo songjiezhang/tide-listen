@@ -3,6 +3,9 @@ package io.github.anylisten.midnight;
 import android.app.Instrumentation;
 import android.content.Context;
 import android.os.Bundle;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.json.*;
 
 public class SyncTest extends Instrumentation {
@@ -26,7 +29,18 @@ public class SyncTest extends Instrumentation {
             "meta",MusicStore.obj("musicId","013","source","tx","createTime",1,"posTime",1,"updateTime",1));
         store.desktop.add("love",new JSONArray().put(row));
         check(store.desktop.pendingCount()==1,"local journal pending before sync");
-        TideSync.sync(store,context);
+        CountDownLatch notified = new CountDownLatch(1);
+        AtomicBoolean listChanged = new AtomicBoolean();
+        okhttp3.Call watch = TideSync.watch(store, (call, lists, sources, error) -> {
+          listChanged.set(lists && !sources && error == null);
+          notified.countDown();
+        });
+        try {
+          TideSync.sync(store,context);
+          check(notified.await(5, TimeUnit.SECONDS) && listChanged.get(), "list revision notification");
+        } finally {
+          watch.cancel();
+        }
         check(store.desktop.pendingCount()==0,"local journal ack");
       } else check(store.desktop.songs("love").toString().contains("手机离线收藏"),"car received phone favorite");
       TideSync.setSources(store,true);

@@ -6,7 +6,7 @@ import {
 } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { DatabaseSync, backup } from 'node:sqlite'
-import { promisify } from 'node:util'
+import { isDeepStrictEqual, promisify } from 'node:util'
 
 const folder = process.env.SYNC_DATA || '/data'
 const secretFile = process.env.SYNC_KEY_FILE || '/secrets/sources.key'
@@ -112,6 +112,10 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS codes (
     id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE, uid INTEGER NOT NULL REFERENCES users(id), expires INTEGER NOT NULL, created INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS code_secrets (
+    code_id INTEGER PRIMARY KEY REFERENCES codes(id) ON DELETE CASCADE,
+    issuer INTEGER NOT NULL REFERENCES users(id), value TEXT NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS devices (
     id INTEGER PRIMARY KEY AUTOINCREMENT, token TEXT NOT NULL UNIQUE, uid INTEGER NOT NULL REFERENCES users(id),
     name TEXT NOT NULL, seen INTEGER NOT NULL
@@ -202,24 +206,69 @@ function library(uid, kind) {
   if (!row) return { revision: 0, data: null }
   return { revision: row.revision, data: JSON.parse(kind === 'sources' ? reveal(row.data) : row.data) }
 }
+const revisionQuery = 'SELECT revision FROM libraries WHERE uid=? AND kind=?'
+const libraryRevision = (uid, kind) => sql(revisionQuery).get(uid, kind)?.revision ?? 0
+const listeners = new Map()
+
+async function changes(req, res, user, query) {
+  const seen = {}
+  for (const kind of ['lists', 'sources']) {
+    const value = query.get(kind)
+    if (value === null) continue
+    if (!/^(?:-1|[0-9]+)$/.test(value) || !Number.isSafeInteger(Number(value))) fail(400, '同步版本无效')
+    seen[kind] = Number(value)
+  }
+  const kinds = Object.keys(seen)
+  if (!kinds.length) fail(400, '请选择监听的同步内容')
+  const revisions = () => Object.fromEntries(kinds.map((kind) => [kind, libraryRevision(user.id, kind)]))
+  const current = revisions()
+  if (kinds.some((kind) => current[kind] !== seen[kind])) return json(res, current)
+
+  const waiting = listeners.get(user.id) ?? new Set()
+  if (waiting.size >= 64) fail(429, '同步连接过多，请稍后再试')
+  listeners.set(user.id, waiting)
+  await new Promise((resolve) => {
+    const done = (kind) => {
+      if (kind && !kinds.includes(kind)) return
+      clearTimeout(timeout)
+      res.off('close', done)
+      waiting.delete(done)
+      if (!waiting.size) listeners.delete(user.id)
+      resolve()
+    }
+    const timeout = setTimeout(done, 20000)
+    res.on('close', done)
+    waiting.add(done)
+  })
+  if (res.destroyed) return
+  authenticate(req, true)
+  return json(res, revisions())
+}
 function saveLibrary(uid, kind, body) {
   if (!Number.isSafeInteger(body.revision) || body.revision < 0 || !/^[0-9A-Za-z_-]{16,80}$/.test(body.operation || '')) {
     fail(400, '同步版本或操作编号无效')
   }
   const data = validate(kind, body.data)
-  return tx(() => {
+  const result = tx(() => {
     const prior = sql('SELECT revision FROM writes WHERE uid=? AND kind=? AND operation=?').get(uid, kind, body.operation)
     if (prior) return prior
-    const current = sql('SELECT revision FROM libraries WHERE uid=? AND kind=?').get(uid, kind)?.revision ?? 0
-    if (current !== body.revision) fail(409, '服务器已有新的修改，请重新同步')
-    const revision = current + 1
-    const encoded = JSON.stringify(data)
-    sql(`INSERT INTO libraries(uid,kind,revision,data) VALUES(?,?,?,?)
-      ON CONFLICT(uid,kind) DO UPDATE SET revision=excluded.revision,data=excluded.data`)
-      .run(uid, kind, revision, kind === 'sources' ? protect(encoded) : encoded)
+    const current = library(uid, kind)
+    if (current.revision !== body.revision) fail(409, '服务器已有新的修改，请重新同步')
+    const changed = !isDeepStrictEqual(current.data, data)
+    const revision = current.revision + Number(changed)
+    if (changed) {
+      const encoded = JSON.stringify(data)
+      sql(`INSERT INTO libraries(uid,kind,revision,data) VALUES(?,?,?,?)
+        ON CONFLICT(uid,kind) DO UPDATE SET revision=excluded.revision,data=excluded.data`)
+        .run(uid, kind, revision, kind === 'sources' ? protect(encoded) : encoded)
+    }
     sql('INSERT INTO writes VALUES(?,?,?,?,?)').run(uid, kind, body.operation, revision, now())
-    return { revision }
+    return { revision, changed }
   })
+  if (result.changed) {
+    for (const done of listeners.get(uid) ?? []) done(kind)
+  }
+  return { revision: result.revision }
 }
 
 const authQuery = {
@@ -370,12 +419,12 @@ async function webAccount(req, res, path, method, adminPortal) {
     const devices = user.admin
       ? sql('SELECT d.id,d.uid,d.name,d.seen,u.name AS account FROM devices d JOIN users u ON u.id=d.uid ORDER BY d.id').all()
       : sql('SELECT id,uid,name,seen FROM devices WHERE uid=? ORDER BY id').all(user.id)
-    const codes = user.admin
-      ? sql(`SELECT c.id,c.uid,NULLIF(c.expires,?) AS expires,u.name AS account
-          FROM codes c JOIN users u ON u.id=c.uid WHERE c.expires=? OR c.expires>?`)
-        .all(unlimitedExpiry, unlimitedExpiry, now())
-      : sql(`SELECT id,uid,NULLIF(expires,?) AS expires FROM codes
-          WHERE uid=? AND (expires=? OR expires>?)`).all(unlimitedExpiry, user.id, unlimitedExpiry, now())
+    const codes = sql(`SELECT c.id,c.uid,NULLIF(c.expires,?) AS expires,u.name AS account,
+        CASE WHEN c.uid=? OR s.issuer=? THEN s.value END AS encrypted
+      FROM codes c JOIN users u ON u.id=c.uid LEFT JOIN code_secrets s ON s.code_id=c.id
+      WHERE (c.uid=? OR ?=1) AND (c.expires=? OR c.expires>?) ORDER BY c.id DESC`)
+      .all(unlimitedExpiry, user.id, user.id, user.id, user.admin, unlimitedExpiry, now())
+      .map(({ encrypted, ...code }) => ({ ...code, ...(encrypted ? { code: reveal(encrypted) } : {}) }))
     return json(res, {
       account: user.name, id: user.id, admin: Boolean(user.admin), users, devices, codes, expiry: defaultExpiry(),
     })
@@ -398,7 +447,11 @@ async function webAccount(req, res, path, method, adminPortal) {
       if (pending >= 30) fail(429, '待使用的配对码过多')
       const expires = expiration(requestedExpiry(body, true), created)
       const code = Array.from({ length: 8 }, () => chars[randomInt(chars.length)]).join('')
-      sql('INSERT INTO codes(code,uid,expires,created) VALUES(?,?,?,?)').run(hash(code), uid, expires, created)
+      tx(() => {
+        const { lastInsertRowid } = sql('INSERT INTO codes(code,uid,expires,created) VALUES(?,?,?,?)')
+          .run(hash(code), uid, expires, created)
+        sql('INSERT INTO code_secrets VALUES(?,?,?)').run(lastInsertRowid, user.id, protect(code))
+      })
       return json(res, { code, expires: expires === unlimitedExpiry ? null : expires }, 201)
     }
     case '/default-expiry':
@@ -464,7 +517,7 @@ async function handler(req, res) {
   res.setHeader('x-content-type-options', 'nosniff')
   res.setHeader('referrer-policy', 'no-referrer')
   res.setHeader('content-security-policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
-  const path = new URL(req.url, origin).pathname
+  const { pathname: path, searchParams } = new URL(req.url, origin)
   const method = req.method
   if (path === '/health' && method === 'GET') return json(res, { status: 'ok' })
   if (path === '/' && method === 'GET') { res.writeHead(303, { location: '/login' }); return res.end() }
@@ -478,6 +531,9 @@ async function handler(req, res) {
   if (path === '/api/v1/pair' && method === 'POST') {
     throttle(req, 'pair', 20, 600)
     return json(res, pair(await payload(req, 8192)), 201)
+  }
+  if (path === '/api/v1/changes' && method === 'GET') {
+    return changes(req, res, authenticate(req, true), searchParams)
   }
   const kind = path.match(/^\/api\/v1\/(lists|sources)$/)?.[1]
   if (!kind || (method !== 'GET' && method !== 'PUT')) fail(404, '接口不存在')
