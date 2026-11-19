@@ -1,7 +1,10 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomInt, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:http'
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import {
+  closeSync, constants, existsSync, fchmodSync, fchownSync, fstatSync,
+  mkdirSync, openSync, readFileSync, writeFileSync,
+} from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { DatabaseSync, backup } from 'node:sqlite'
 import { promisify } from 'node:util'
 
@@ -20,9 +23,64 @@ const hash = (value) => createHash('sha256').update(value).digest('hex')
 const now = () => Math.floor(Date.now() / 1000)
 const day = 86400
 const limit = 24 * 1024 * 1024
-const [action, argument] = process.argv.slice(2)
+const args = process.argv.slice(2)
+const container = args[0] === '--container'
+const [action, argument] = container ? args.slice(1) : args
 
 const databaseFile = join(folder, 'sync.sqlite')
+
+// Open the exact entry before changing its metadata. This keeps symlinks in
+// bind mounts from redirecting the privileged repair to another host file.
+function repairContainerPath(path, directory = false) {
+  const uid = 1000
+  const gid = 1000
+  const mode = directory ? 0o700 : 0o600
+  let descriptor
+  try {
+    descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW |
+      (directory ? constants.O_DIRECTORY : constants.O_NONBLOCK))
+  } catch (error) {
+    if (!directory && error.code === 'ENOENT') return
+    throw error
+  }
+  try {
+    const entry = fstatSync(descriptor)
+    if (directory ? !entry.isDirectory() : !entry.isFile()) {
+      throw Error('挂载目标不是预期的文件类型：' + path)
+    }
+    const wrongOwner = entry.uid !== uid || entry.gid !== gid
+    const wrongMode = (entry.mode & 0o7777) !== mode
+    if (!directory && entry.nlink > 1 && (wrongOwner || wrongMode)) {
+      throw Error('请使用独立的数据库或密钥文件：' + path)
+    }
+    if (wrongOwner) fchownSync(descriptor, uid, gid)
+    if (wrongMode) fchmodSync(descriptor, mode)
+  } finally {
+    closeSync(descriptor)
+  }
+}
+
+if (container && process.getuid?.() === 0) {
+  if (resolve(folder) === '/data') {
+    repairContainerPath('/data', true)
+    for (const suffix of ['', '-wal', '-shm', '-journal']) {
+      repairContainerPath('/data/sync.sqlite' + suffix)
+    }
+  }
+  if (resolve(secretFile) === '/secrets/sources.key') {
+    try {
+      repairContainerPath('/secrets', true)
+      repairContainerPath('/secrets/sources.key')
+    } catch (error) {
+      // A separately mounted, readable key can remain read-only.
+      if (error.code !== 'EROFS') throw error
+    }
+  }
+  // All database operations and the HTTP server run without root privileges.
+  process.setgroups([])
+  process.setgid(1000)
+  process.setuid(1000)
+}
 mkdirSync(folder, { recursive: true, mode: 0o700 })
 if (!existsSync(secretFile)) {
   if (existsSync(databaseFile)) throw Error('请将原来的 sources.key 与数据库一起恢复')
