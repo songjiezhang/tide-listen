@@ -1,6 +1,6 @@
 # 汐听同步服务
 
-同步服务和网页管理使用同一个 HTTPS 地址。账号、设备、歌单、音源和配对码保存在 Docker 数据卷中。
+同步服务和网页管理使用同一个 HTTPS 地址。数据库与音源密钥分别保存在两个持久化挂载中。v0.13.8 客户端保存的在线来源、歌单顺序和曲序沿用现有协议，已有 2026.11.0002 服务可直接接入。
 
 ## Docker 部署
 
@@ -24,6 +24,14 @@ SYNC_ADMIN_PASSWORD=
 - 管理员账号和密码只在首次启动时使用。密码长度为 12 至 128 个字符。以后在 `/admin` 修改密码。已有实例升级时沿用原数据卷和密钥卷。初始化成功后可清空 `.env` 中的初始密码，再重新创建容器。
 
 ### 用 Docker Compose 启动
+
+部署预构建镜像只需要 Compose 文件和环境变量。首次部署可在一个空目录下载两个文件，再编辑 `.env`：
+
+```bash
+curl -fLO https://raw.githubusercontent.com/songjiezhang/tide-listen/v0.13.8/sync-server/compose.yaml
+curl -fL https://raw.githubusercontent.com/songjiezhang/tide-listen/v0.13.8/sync-server/.env.example -o .env
+chmod 600 .env
+```
 
 把 [compose.yaml](https://raw.githubusercontent.com/songjiezhang/tide-listen/main/sync-server/compose.yaml) 和 `.env` 放在同一个目录，执行：
 
@@ -54,6 +62,16 @@ docker run -d --name tidelisten-sync --restart unless-stopped \
 
 从已有部署切换启动方式时，把示例卷名换成原来的数据库卷和密钥卷。启动后访问 `https://sync.example.com/admin`，App 配对填写 `https://sync.example.com`。
 
+### 检查部署和升级
+
+```bash
+docker compose ps
+docker compose logs --tail=50 sync
+curl -fsS http://127.0.0.1:18472/health
+```
+
+上例使用 `.env` 示例中的宿主机端口。反代需要允许至少 20 秒的空闲等待，以便客户端接收变更通知。升级时在原项目目录将镜像标签改为目标服务端版本，执行 `docker compose pull sync` 和 `docker compose up -d`。保留两处挂载和 Compose 项目名。普通用户访问 `/login`，管理员访问 `/admin`。
+
 ### 通过 Dockerfile 自行构建
 
 在源码的 `sync-server/` 目录准备好 `.env`，运行：
@@ -62,9 +80,7 @@ docker run -d --name tidelisten-sync --restart unless-stopped \
 docker compose -f compose.yaml -f compose.build.yaml up -d --build
 ```
 
-v0.13.0 Release 里的独立部署包和预构建镜像使用该版本的手动管理员初始化流程。[v0.13.0 部署说明](https://github.com/songjiezhang/tide-listen/blob/e23b3065dc63a817ec7e1e58bfd9661c3f909f24/sync-server/README.md#docker-部署)
-
-### 从 v0.13.1 升级绑定挂载
+### 已有绑定挂载
 
 如果你的 VPS 使用下面的绑定挂载，请在**原来放置 `compose.yaml` 的目录**操作并保留这两条挂载。
 
@@ -81,8 +97,6 @@ docker compose up -d
 ```
 
 镜像启动时会修正默认 `/data` 和 `/secrets` 的权限，以及数据库、SQLite 辅助文件和 `sources.key` 的归属。随后服务降权到 `1000:1000`，继续使用原数据库、密钥和管理员账号。挂载须允许写入。显式指定非 root 的 `user:` 时，由部署者管理挂载权限。
-
-v0.13.1 的手动权限排查可参考该版本的部署说明。[旧镜像权限排查](https://github.com/songjiezhang/tide-listen/blob/93f6921/sync-server/README.md#密钥目录权限排查)
 
 ## 网页与设备
 

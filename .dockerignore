@@ -1,3 +1,6 @@
 **/node_modules/
-build/
-
+**/build/
+**/.gradle/
+**/dist/
+**/.env
+*.log

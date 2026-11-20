@@ -39,7 +39,7 @@ function lyricInput(platform, info) {
   return { ...info, id: platform === 'kw' ? String(meta.musicId) : info.id, meta }
 }
 
-export async function catalog({action, platform, id, sort, tag, musicInfo, page = 1}) {
+export async function catalog({action, platform, id, sort, tag, date, musicInfo, page = 1}) {
   const [list, detail, tags, sorts, defaultSort] = platforms[platform]
   switch (action) {
     case 'lyric':
@@ -54,7 +54,7 @@ export async function catalog({action, platform, id, sort, tag, musicInfo, page 
       return { list, total: list.length, limit: list.length }
     }
     case 'chart-detail': {
-      const result = await charts[platform][1](id, '', page)
+      const result = await charts[platform][1](id, date || '', page)
       return { ...result, info: { ...result.info, img: result.info.pic } }
     }
     case 'options':

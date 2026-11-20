@@ -30,7 +30,22 @@ let viewMarkup = '', filterMarkup = '', catalogMarkup = ''
 let favoriteKeys = new Set()
 let playing = { id: '', name: '', artist: '', cover: '', position: 0, duration: 0 }
 let tab = 'home', platform = 'kg', sort = '', tag = '', listId = '', online = null, token = 0
-let catalogMode = 'list'
+let catalogMode = 'list', sorting = false
+const grip = '<button type="button" class="grip" data-grip aria-label="拖动排序">☰</button>'
+const controls = playlistControls(view,
+  (moved, anchor, after) => app('moveItem', { listId, moved, anchor, after }),
+  (properties) => app('listProperties', properties))
+function canRefresh(item) {
+  const ref = item?.online
+  return ref?.extensionId === 'online-metadata' && Object.prototype.hasOwnProperty.call(platforms, ref.source) &&
+    ['songlist', 'topSongs'].includes(ref.sourceType) && !!ref.syncId
+}
+function refreshList(item) {
+  const ref = item.online
+  app('saveCatalog', { target: item.id, action: ref.sourceType === 'topSongs' ? 'chart-detail' : 'detail',
+    platform: ref.source, id: ref.syncId, date: ref.date, name: item.name })
+}
+function sortButton() { return button('sort', sorting ? '完成排序' : '排序') }
 let visibleTracks = [], seekHeld = false, nativeReady = false
 let positionSample = 0, fullClock = 0
 const lyrics = createLyricsView((request) => app('lyrics', request), () => app('cancelLyrics'))
@@ -165,6 +180,7 @@ function openCatalog() {
 }
 function selectTab(next) {
   tab = next
+  sorting = false
   listId = ''
   online = null
   if (tab === 'home' && nativeReady) openCatalog()
@@ -215,9 +231,13 @@ function showPlaylist(id) {
   return id !== 'default' || data.showListeningList
 }
 function myLists() {
-  return '<div class="pageTitle"><h1>我的列表</h1>' + button('new', '新建', 'plus') + '</div>' +
+  return '<div class="pageTitle"><h1>我的列表</h1>' + (data.playlists.filter((l) => l.id !== 'love' && l.id !== 'default').length > 1 ? sortButton() : '') + button('new', '新建', 'plus') + '</div>' +
     (data.playlistReady ? '<div class="playlistGrid">' +
-      data.playlists.filter((item) => showPlaylist(item.id)).map((item, i) => card(item, item.id, item.count + ' 首', i < 4)).join('') +
+      data.playlists.filter((item) => showPlaylist(item.id)).map((item, i) => {
+        const tile = card(item, item.id, item.count + ' 首', i < 4)
+        return sorting && item.id !== 'love' && item.id !== 'default'
+          ? '<div class="sortCard" data-sort-id="' + esc(item.id) + '">' + tile + grip + '</div>' : tile
+      }).join('') +
       '</div>' : '<div class="empty" role="status">正在读取歌单…</div>')
 }
 function play(id) {
@@ -230,7 +250,8 @@ function isLiked(row) {
 function trackRows(rows, remove) {
   return '<ol class="tracks">' + rows.map((t, i) => {
     const liked = isLiked(t)
-    return '<li class="track"><button class="trackMain" type="button" data-track="' + esc(t.id) + '"' +
+    return '<li class="track"' + (sorting ? ' data-sort-id="' + esc(t.key) + '"' : '') + '>' +
+      (sorting ? grip : '') + '<button class="trackMain" type="button" data-track="' + esc(t.id) + '"' +
       (t.playable === false ? ' disabled' : '') + '><span class="trackIndex">' + (t.id === playing.id ? '♫' : String(i + 1)) + '</span>' +
       '<span class="trackCopy"><strong>' + esc(t.name) + '</strong><small>' +
       esc([t.artist, t.platform, t.duration].filter(Boolean).join(' · ')) + '</small></span></button>' +
@@ -259,10 +280,12 @@ function detail() {
     esc([remote ? platforms[item.platform] : '', count == null ? '' : count + ' 首歌曲'].filter(Boolean).join(' · ')) +
     '</p></div></div><div class="actions">' +
     (rows.some((t) => t.playable !== false) ? button('play-all', '播放全部', 'play', 'primary') : '') +
-    (remote ? (rows.length ? button('save-online', online.kind === 'charts' ? '收藏榜单' : '收藏歌单', 'bookmark') : '') :
-      button('add', '添加歌曲', 'plus') +
-      (own.editable ? button('rename', '重命名', 'pencil') + button('delete', '删除歌单', 'trash', 'plain') : '')) +
-    '</div>' + (rows.length ? trackRows(rows, !remote && listId !== 'love') : '') +
+    (remote ? (rows.length ? button('save-online', online.kind === 'charts' ? '收藏榜单' : '收藏歌单', 'bookmark') +
+        (data.playlists.some((list) => list.type === 'general') ? button('bind-existing', '关联已有列表') : '') : '') :
+      (rows.length > 1 ? sortButton() : '') + (canRefresh(own) ? button('refresh', '更新列表', 'sync') : '') +
+      (own.type === 'online' ? '' : button('add', '添加歌曲', 'plus')) +
+      (own.editable ? button('edit', '编辑列表', 'pencil') + button('delete', '删除歌单', 'trash', 'plain') : '')) +
+    '</div>' + (rows.length ? trackRows(rows, !remote && own.type !== 'online' && listId !== 'love') : '') +
     (remote ? loading(state, detailAction(), rows.length === 0) :
       rows.length ? '' : '<div class="empty">这个歌单还没有歌曲</div>')
 }
@@ -475,6 +498,7 @@ window.transport = (state) => {
 }
 window.openList = ({ id }) => {
   tab = 'lists'
+  sorting = false
   listId = showPlaylist(id) ? id : ''
   online = null
   view.scrollTop = 0
@@ -492,8 +516,12 @@ view.addEventListener('click', (event) => {
     openCatalog()
     draw()
   } else if (item.open !== undefined) {
-    if (tab === 'lists') listId = item.open
-    else {
+    sorting = false
+    if (tab === 'lists') {
+      listId = item.open
+      const list = data.playlists.find((l) => l.id === listId)
+      if (canRefresh(list) && list.autoSync && Date.now() - list.syncTime > 86400000) refreshList(list)
+    } else {
       const row = catalog.get(browseKey())?.rows.find((itemRow) => String(itemRow.id) === item.open)
       if (!row) return
       online = { ...row, platform, kind: catalogMode }
@@ -510,9 +538,14 @@ view.addEventListener('click', (event) => {
     const first = visibleTracks.find((track) => track.playable !== false)
     if (first) play(first.id)
   } else if (item.do === 'new') app('createList')
-  else if (item.do === 'rename') {
+  else if (item.do === 'sort') { sorting = !sorting; draw() }
+  else if (item.do === 'edit' || item.do === 'refresh') {
     const list = data.playlists.find((itemRow) => itemRow.id === listId)
-    if (list) app('renameList', { id: listId, name: list.name })
+    if (list && item.do === 'edit') controls.edit(list)
+    else if (canRefresh(list)) refreshList(list)
+  } else if (item.do === 'bind-existing' && online) {
+    app('bindExisting', { extensionId: 'online-metadata', source: online.platform,
+      sourceType: online.kind === 'charts' ? 'topSongs' : 'songlist', syncId: String(online.id) })
   } else if (item.do === 'add') app('add', listId)
   else if (item.do === 'delete') app('deleteList', listId)
   else if (item.do === 'save-online' && online) {
@@ -587,6 +620,7 @@ el('seek').onchange = (event) => {
 el('seek').onpointercancel = () => { seekHeld = false; drawFullTime() }
 tabs.forEach((button) => { button.onclick = () => selectTab(button.dataset.tab) })
 window.goBack = () => {
+  if (controls.close()) return true
   if (!el('nowScreen').hidden) { showNow(false); return true }
   if (online || listId) { selectTab(tab); return true }
   if (tab !== 'home') { selectTab('home'); return true }

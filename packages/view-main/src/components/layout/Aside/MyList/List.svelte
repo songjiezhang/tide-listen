@@ -55,15 +55,11 @@
       <ul
         class="list"
         {@attach sortable({
-          onupdate: (parentId, id, toTargetId, position) => {
-            void updateUserListPosition(id, position - visibleDefaultLists.length)
-          },
-          filter: 'default-list',
-          activeElement: 'my-list-container',
+          onupdate: (id, position) => { void updateUserListPosition(id, position) },
         })}
       >
         {#each lists as item, index (item.id)}
-          <li class="list-item draggable-item" class:default-list={item.type == 'default'} data-id={item.id}>
+          <li class="list-item" class:draggable-item={item.type !== 'default'} data-id={item.id}>
             <ListItem
               listInfo={item}
               active={activeIndex == index}

@@ -22,7 +22,7 @@ public class SyncTest extends Instrumentation {
       TideSync.sync(store,context);
       String role=args.getString("role");
       String keys=store.desktop.lists().toString();
-      check(keys.contains("汐听通勤歌单"),"identical playlist name");
+      check(keys.contains("通勤歌单"),"identical playlist name");
       check(!TideSync.status(store).getBoolean("sources"),"sources default off");
       if ("phone".equals(role)) {
         JSONObject row=MusicStore.obj("id","tx_013","name","手机离线收藏","singer","测试","interval","00:12","isLocal",false,
@@ -42,7 +42,39 @@ public class SyncTest extends Instrumentation {
           watch.cancel();
         }
         check(store.desktop.pendingCount()==0,"local journal ack");
-      } else check(store.desktop.songs("love").toString().contains("手机离线收藏"),"car received phone favorite");
+        JSONObject ref = MusicStore.obj("extensionId", "online-metadata", "source", "tx",
+            "sourceType", "songlist", "syncId", "qa-source");
+        DesktopPlaylists library = store.desktop;
+        library.properties("qa-list", "已关联的通勤歌单", ref, false);
+        check(library.songs("qa-list").length() == 1, "binding keeps existing songs");
+        JSONObject next = new JSONObject(row.toString()).put("id", "tx_second");
+        JSONArray songs = new JSONArray().put(row).put(next);
+        library.saveOnline(library.scopeId(), "qa-list", "", "", ref, songs, System.currentTimeMillis());
+        library.move("qa-list", "tx_013", "tx_second", true);
+        JSONObject chart = new JSONObject(ref.toString()).put("sourceType", "topSongs");
+        library.saveOnline(library.scopeId(), "", "通勤排行榜", "", chart, songs, System.currentTimeMillis());
+        JSONArray lists = library.lists();
+        String chartId = lists.getJSONObject(lists.length() - 1).getString("id");
+        library.move("", chartId, "qa-list", false);
+        boolean rejected = false;
+        try {
+          library.saveOnline(library.scopeId(), "qa-list", "", "", chart, new JSONArray(), System.currentTimeMillis());
+        } catch (java.io.IOException expected) { rejected = true; }
+        check(rejected && library.songs("qa-list").length() == 2, "stale refresh preserves songs");
+        TideSync.sync(store, context);
+        check(library.pendingCount() == 0, "playlist changes acknowledged");
+      } else {
+        check(store.desktop.songs("love").toString().contains("手机离线收藏"), "car received phone favorite");
+        JSONArray lists = store.desktop.lists();
+        JSONObject chart = lists.getJSONObject(2), saved = lists.getJSONObject(3);
+        check(chart.getString("name").equals("通勤排行榜") && chart.getJSONObject("online").getString("sourceType").equals("topSongs"),
+            "chart binding and playlist order survived transfer");
+        check(saved.getString("id").equals("qa-list") && saved.getString("name").equals("已关联的通勤歌单") &&
+            saved.getJSONObject("online").getString("syncId").equals("qa-source"), "converted in place");
+        JSONArray rows = store.desktop.songs("qa-list");
+        check(rows.length() == 2 && rows.getJSONObject(0).getString("key").equals("tx_second") &&
+            rows.getJSONObject(1).getString("key").equals("tx_013"), "song order survived transfer");
+      }
       TideSync.setSources(store,true);
       TideSync.sync(store,context);
       check(TideSync.status(store).getBoolean("hasReview"),"require explicit review");

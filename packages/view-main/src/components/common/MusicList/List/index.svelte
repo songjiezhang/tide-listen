@@ -3,7 +3,7 @@
   import { useListItemHeight } from '@/modules/app/reactive.svelte'
   import Menu from './Menu.svelte'
   import ListItem from './ListItem.svelte'
-  import { musicClick, playMusic } from './action'
+  import { musicClick, playMusic, updateMusicPosition } from './action'
   import { playMusicInfo } from '@/modules/player/reactive.svelte'
   import Header from './Header.svelte'
   import type { ListInfo } from '../type'
@@ -40,6 +40,20 @@
   } = $props()
 
   let virtualizedList = $state<ComponentExports<typeof VirtualizedList<AnyListen.Music.MusicInfo>> | null>(null)
+
+  let dragged: { listId: string; id: string } | null = null
+  const canReorder = $derived(!!import.meta.env.VITE_IS_DESKTOP && source === 'local')
+  const dropTrack = (event: DragEvent, anchor: string) => {
+    if (!canReorder || !dragged || dragged.listId !== listinfo.id || dragged.id === anchor) return
+    const from = list.findIndex((song) => song.id === dragged!.id)
+    const to = list.findIndex((song) => song.id === anchor)
+    if (from < 0 || to < 0) return
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    const after = event.clientY >= rect.top + rect.height / 2
+    const position = to + Number(after) - Number(from < to)
+    if (from !== position) void updateMusicPosition(listinfo.id, position + 1, [dragged.id])
+    dragged = null
+  }
 
   let playingIndex = $derived(
     $playMusicInfo?.listId == listinfo.id ? list.findIndex((m) => m.id == $playMusicInfo.musicInfo.id) : -1
@@ -151,6 +165,18 @@
     >
       {#snippet row(item, index)}
         <ListItem
+          draggable={canReorder}
+          ondragstart={(event) => {
+            if (!event.dataTransfer) return
+            dragged = { listId: listinfo.id, id: item.id }
+            event.dataTransfer.setData('application/x-tidelisten-track', item.id)
+            event.dataTransfer.effectAllowed = 'move'
+          }}
+          ondragend={() => { dragged = null }}
+          ondragover={(event) => {
+            if (dragged?.listId === listinfo.id) event.preventDefault()
+          }}
+          ondrop={(event) => { event.preventDefault(); dropTrack(event, item.id) }}
           musicinfo={item}
           listid={listinfo.id}
           {source}

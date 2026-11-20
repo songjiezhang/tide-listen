@@ -181,7 +181,7 @@ export const createListDeleteStatement = () => {
 export const createListUpdateStatement = () => {
   return dbPrepare<UserListInfo>(`
     UPDATE "main"."my_list"
-    SET "name"=@name, "meta"=@meta
+    SET "name"=@name, "type"=@type, "meta"=@meta
     WHERE "id"=@id`)
 }
 

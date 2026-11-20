@@ -3,10 +3,10 @@
   import { t } from '@/plugins/i18n'
   let {
     value = $bindable(),
-    disabled,
+    editableType,
   }: {
     value: AnyListen.List.UserListType
-    disabled: boolean
+    editableType?: AnyListen.List.UserListType
   } = $props()
 
   const listType: AnyListen.List.UserListType[] = ['general', 'local', 'remote', 'online']
@@ -18,7 +18,7 @@
       id={`new_list_type_${type}`}
       value={type}
       name="new_list_type"
-      disabled={disabled || type == 'online'}
+      disabled={editableType ? type !== editableType && !(editableType === 'general' && type === 'online') : type === 'online'}
       label={$t(`edit_list_modal__list_${type}`)}
       checked={value == type}
       onselect={(val) => {

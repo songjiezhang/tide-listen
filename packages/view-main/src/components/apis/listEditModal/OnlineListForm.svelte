@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { t } from '@/plugins/i18n'
+  import { i18n, t } from '@/plugins/i18n'
   import { createUserList, editUserList } from './shared'
   import Input from '@/components/base/Input.svelte'
   import FormItem from './FormItem.svelte'
@@ -11,10 +11,11 @@
     item,
     targetId,
   }: {
-    item?: AnyListen.List.OnlineListInfo | null
+    item?: AnyListen.List.OnlineListInfo | AnyListen.List.GeneralListInfo | null
     targetId?: AnyListen.List.ParentId
   } = $props()
 
+  const supportedKinds = ['songlist', 'topSongs'] as const
   const initData: AnyListen.List.OnlineListInfo = {
     id: '',
     name: '',
@@ -43,7 +44,8 @@
 
   let sourceName = $derived.by(() => {
     if (!listInfo.meta.source || !listInfo.meta.extensionId) return ''
-    const ext = $resourceList.resources.songlist?.find((e) => e.id == listInfo.meta.source)
+    const resources = $resourceList.resources[listInfo.meta.sourceType === 'topSongs' ? 'topSongs' : 'songlist']
+    const ext = resources?.find((e) => e.id === listInfo.meta.source && e.extensionId === listInfo.meta.extensionId)
     if (!ext) return listInfo.meta.source
     return $extT(ext.extensionId, ext.name)
   })
@@ -62,8 +64,10 @@
     }
   }
   export const submit = async () => {
-    if (!verify()) return
+    if (!verify()) throw new Error(i18n.t('edit_list_modal__form_err_name'))
+    if (!listInfo.meta.syncId.trim() || !listInfo.meta.source) throw new Error(i18n.t('edit_list_modal__form_err_source'))
     const info = $state.snapshot(listInfo)
+    info.meta.syncId = info.meta.syncId.trim()
     if (item) {
       await editUserList(info)
     } else {
@@ -75,7 +79,8 @@
     if (!item) return
     listInfo = {
       ...item,
-      meta: { ...item.meta },
+      type: 'online',
+      meta: { ...initData.meta, ...item.meta },
     }
   })
 </script>
@@ -94,13 +99,37 @@
     <p class="tip">{$t('edit_list_modal.online_list_form.auto_sync_tip')}</p>
   </FormItem>
   <FormItem label={$t('edit_list_modal.online_list_form.source_type')}>
-    <p>{$t(`edit_list_modal.online_list_form.source_type_${listInfo.meta.sourceType}`)}</p>
+    {#if item?.type !== 'online'}
+      <select bind:value={listInfo.meta.sourceType}>
+        {#each supportedKinds as kind}
+          <option value={kind}>{$t(`edit_list_modal.online_list_form.source_type_${kind}`)}</option>
+        {/each}
+      </select>
+    {:else}
+      <p>{$t(`edit_list_modal.online_list_form.source_type_${listInfo.meta.sourceType}`)}</p>
+    {/if}
   </FormItem>
   <FormItem label={$t('edit_list_modal.online_list_form.source')}>
-    <p>{sourceName}</p>
+    {#if item?.type !== 'online'}
+      <select value={listInfo.meta.source} onchange={(event) => {
+        listInfo.meta.source = event.currentTarget.value
+        listInfo.meta.extensionId = 'online-metadata'
+      }}>
+        <option value="">—</option>
+        {#each ($resourceList.resources[listInfo.meta.sourceType === 'topSongs' ? 'topSongs' : 'songlist'] ?? []).filter((r) => r.extensionId === 'online-metadata') as provider}
+          <option value={provider.id}>{$extT(provider.extensionId, provider.name)}</option>
+        {/each}
+      </select>
+    {:else}
+      <p>{sourceName}</p>
+    {/if}
   </FormItem>
   <FormItem label={$t('edit_list_modal.online_list_form.sync_id')}>
-    <p class="path code select">{listInfo.meta.syncId}</p>
+    {#if item?.type !== 'online'}
+      <Input bind:value={listInfo.meta.syncId} />
+    {:else}
+      <p class="path code select">{listInfo.meta.syncId}</p>
+    {/if}
   </FormItem>
 </main>
 

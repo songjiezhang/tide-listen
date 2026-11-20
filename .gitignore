@@ -71,3 +71,7 @@ publish/assets
 publish/utils/githubToken.js
 
 src/**/*-internal.js
+
+# Local editor and compiler artifacts
+*.tsbuildinfo
+*.bak.ts

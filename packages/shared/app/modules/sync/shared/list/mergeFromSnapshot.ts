@@ -1,5 +1,28 @@
 import { getDeviceId } from '../../../../common/deviceId'
 
+// Keep insertions and removals from both devices while applying the order of
+// the device that rearranged tracks relative to the shared snapshot.
+const mergeOrder = (
+  merged: AnyListen.Music.MusicInfo[],
+  local: AnyListen.Music.MusicInfo[],
+  remote: AnyListen.Music.MusicInfo[],
+  base: AnyListen.Music.MusicInfo[]
+) => {
+  const baseIds = new Set(base.map((song) => song.id))
+  const remoteIds = new Set(remote.map((song) => song.id))
+  const common = new Set(local.map((song) => song.id).filter((id) => baseIds.has(id) && remoteIds.has(id)))
+  const order = (songs: AnyListen.Music.MusicInfo[]) => songs.filter((song) => common.has(song.id)).map((song) => song.id)
+  const original = order(base)
+  const localOrder = order(local)
+  const changed = (ids: string[]) => ids.some((id, index) => id !== original[index])
+  const ids = changed(localOrder) ? localOrder : order(remote)
+  if (!changed(ids)) return merged
+  const byId = new Map(merged.map((song) => [song.id, song]))
+  const retained = ids.filter((id) => byId.has(id))
+  let index = 0
+  return merged.map((song) => common.has(song.id) ? byId.get(retained[index++])! : song)
+}
+
 const mergeMusicList = (
   localList: AnyListen.Music.MusicInfo[],
   latestList: AnyListen.Music.MusicInfo[],
@@ -93,6 +116,7 @@ const mergeUserList = <T extends ListInfoFull>(
           : (snapshotList ?? localList)
     list = targetList.list
   }
+  if (snapshotList) list = mergeOrder(list, localList.list, latestList.list, snapshotList.list)
   const selectedList = localList.meta.updateTime > latestList.meta.updateTime ? localList : latestList
   const snapshotPlayCount = snapshotList?.meta.playCount || 0
   let playCount: number

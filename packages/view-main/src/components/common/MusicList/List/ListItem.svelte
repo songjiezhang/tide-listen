@@ -25,6 +25,8 @@
     selectedactive,
     playing,
     active,
+    draggable = false,
+    ondragstart, ondragend, ondragover, ondrop,
     oncontextmenu,
     onclick,
     onplay,
@@ -38,6 +40,11 @@
     selected?: boolean
     active?: boolean
     selectedactive?: boolean
+    draggable?: boolean
+    ondragstart?: (event: DragEvent) => void
+    ondragend?: () => void
+    ondragover?: (event: DragEvent) => void
+    ondrop?: (event: DragEvent) => void
     oncontextmenu?: MouseEventHandler<HTMLDivElement>
     onclick: (isKey: boolean) => void
     onplay?: () => void
@@ -90,6 +97,8 @@
   tabindex="0"
   onkeydown={handleClick}
   onclick={handleClick}
+  {draggable}
+  {ondragstart} {ondragend} {ondragover} {ondrop}
   {oncontextmenu}
   onmouseenter={() => (hovered = true)}
   onmouseleave={() => (hovered = false)}
@@ -177,6 +186,10 @@
 </div>
 
 <style lang="less">
+  .container[draggable='true'] {
+    -webkit-user-drag: element;
+    .track-number { cursor: grab; }
+  }
   .container {
     position: relative;
     display: flex;

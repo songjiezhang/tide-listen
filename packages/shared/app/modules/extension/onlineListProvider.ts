@@ -35,7 +35,7 @@ export const syncList = async (list: AnyListen.List.OnlineListInfo) => {
     ])
     const localMusicMap = new Map<string, AnyListen.Music.MusicInfoOnline>()
     for (const m of localMusics) localMusicMap.set(m.id, m)
-    let isUpdated = false
+    let isUpdated = localMusics.length !== onlineMusics.length
     const newList = onlineMusics.map((m, i) => {
       const local = localMusicMap.get(m.id)
       if (localMusics[i]?.id !== m.id) isUpdated ||= true
@@ -44,6 +44,10 @@ export const syncList = async (list: AnyListen.List.OnlineListInfo) => {
     })
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (!isUpdated) return
+    const [current] = await workers.dbService.getListInfos([list.id])
+    if (current?.type !== 'online' || current.meta.syncId !== list.meta.syncId ||
+      current.meta.source !== list.meta.source || current.meta.extensionId !== list.meta.extensionId ||
+      current.meta.sourceType !== list.meta.sourceType || current.meta.date !== list.meta.date) return
     await sendMusicListAction({
       action: 'list_music_overwrite',
       data: {
@@ -51,21 +55,9 @@ export const syncList = async (list: AnyListen.List.OnlineListInfo) => {
         musicInfos: newList,
       },
     })
-    await sendMusicListAction({
-      action: 'list_update',
-      data: {
-        lists: [
-          {
-            ...list,
-            meta: {
-              ...list.meta,
-              syncTime: Date.now(),
-            },
-          },
-        ],
-        sync: true,
-      },
-    })
+    const updated = { ...current, meta: { ...current.meta, songCount: newList.length, syncTime: Date.now() } }
+    await workers.dbService.updateUserLists([updated])
+    await sendMusicListAction({ action: 'list_update', data: { lists: [updated], sync: true } })
   } catch (err) {
     logs.App.logcat.error(`[Online List]Sync error: ${list.name} (${list.id})`, err)
     throw err
@@ -140,7 +132,7 @@ const runSyncLoadedExtensionList = throttle(async () => {
     new Set([
       ...state.waitingSyncLists,
       ...(userLists.filter((l) => {
-        if (l.type !== 'online') return false
+        if (l.type !== 'online' || !l.meta.autoSync) return false
         const ids = filteredExts.get(l.meta.extensionId)
         if (!ids) return false
         if (ids.has(l.meta.source)) return true

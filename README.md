@@ -2,11 +2,11 @@
 
 ![汐听的浪尖音符图标](packages/desktop/resources/icons/64x64.png)
 
-基于 [Any Listen](https://github.com/any-listen/any-listen) 的个人非商业改版，由 songjiezhang 维护。默认主题为 Midnight。Windows 桌面端沿用上游的播放器和扩展机制。Android 手机和横屏车机使用独立的 Media3 客户端，三端可通过 WebDAV 共用歌单。
+基于 [Any Listen](https://github.com/any-listen/any-listen) 的个人非商业改版，由 songjiezhang 维护。默认主题为 Midnight。Windows 桌面端沿用上游的播放器和扩展机制。Android 手机和横屏车机使用独立的 Media3 客户端，三端通过汐听同步服务或 WebDAV 共享歌单与排列顺序。
 
 ## 下载安装
 
-本仓库以 **v0.12.1** 作为 Release 的起始版本。请在 [Releases](https://github.com/songjiezhang/tide-listen/releases/latest) 下载对应设备的安装包。
+本仓库以 **v0.13.7** 作为 Release 的起始版本。请在 [Releases](https://github.com/songjiezhang/tide-listen/releases/latest) 下载对应设备的安装包。
 
 | 设备 | 安装包文件名 | 软件内更新入口 |
 | --- | --- | --- |
@@ -20,9 +20,17 @@ Android 最低支持 6.0。车机需要支持直接安装 APK。从 0.12.0 或�
 
 - 桌面端使用 Midnight 圆角主题，支持按链接更新已导入的洛雪 JS 音源，按启用音源的优先级依次解析。桌面在线歌单和歌词通过扩展管理器获得。
 - 手机和车机在「设置 → 音源」调整优先级。播放时依次尝试支持歌曲平台和所选音质的已启用音源，第一个可播放的音源成功后即停止。首选音质没有可用结果时，再尝试更低音质。「音源默认」直接使用每个音源的默认音质。
-- Android 首页内置 Online Metadata v0.4.9 的歌单模块，可浏览酷狗、酷我、网易、企鹅和咪咕的公开歌单。首页先显示缓存，再后台刷新。播放页使用同一扩展获取同步歌词。
-- 在 Android 设置中填写桌面端使用的 WebDAV 同步目录，即可按原名称查看「我的列表」。添加、收藏、改名等变更会自动同步。播放网络歌曲所需的 JS 音源由使用者自行从有权使用的来源导入。
+- Android 首页内置 Online Metadata v0.4.9 的歌单和排行榜模块，可浏览酷狗、酷我、网易、企鹅和咪咕的公开歌单。首页先显示缓存，再后台刷新。播放页使用同一扩展获取同步歌词。
+- 在 Android 设置中填写桌面端使用的 WebDAV 同步目录，即可按原名称查看「我的列表」。添加、收藏、编辑与排序会自动同步。播放网络歌曲所需的 JS 音源由使用者自行从有权使用的来源导入。
 - 手机重新打开后恢复上次曲目、队列和进度。车机默认打开后继续播放，横屏左侧为封面和控制，右侧为滚动歌词。
+
+### 编辑、更新与排序
+
+从在线资源收藏歌单或排行榜，三端都会保存平台、资源类型与原列表链接或 ID。桌面右键歌单，手机和车机进入歌单后点击「编辑列表」或「更新列表」。更新会按平台当前内容替换歌曲和顺序，歌单名称与列表 ID 继续保留。
+
+老版本 Android 收藏的普通列表可以在首页打开对应的在线资源，选择「关联已有列表」。也可以在「编辑列表」将普通列表设为在线列表并填写平台、资源类型与原列表链接或 ID。关联后可先检查来源，再点「更新列表」。桌面使用该来源时需要启用 Online Metadata 扩展。
+
+桌面直接拖动侧栏中的自建歌单，或拖动歌单里的歌曲序号到目标行。手机和车机在「我的列表」或歌单详情点击「排序」，拖动手柄后点击「完成排序」。「我喜欢」与可选的「试听列表」固定在顶部，其中的歌曲可以排序。
 
 ## 自托管同步
 
@@ -51,6 +59,20 @@ v0.12.1 的三端共用「浪尖音符」图标。桌面截图来自 Windows 版
 **播放与同步歌词**
 
 ![车机横屏播放页，左侧为封面、进度和播放控制，右侧高亮当前歌词](docs/images/midnight/car-player.png)
+
+## 仓库结构
+
+| 目录 | 用途 |
+| --- | --- |
+| `packages/desktop` | Electron 主进程、Windows 安装包和桌面同步 |
+| `packages/view-main`、`packages/view-lyric` | 桌面播放器界面与独立歌词窗口 |
+| `packages/android` | 手机和车机共用的 Media3、WebView、歌单存储与在线资源适配 |
+| `packages/shared` | 桌面和 Web 共用的数据库、扩展运行时、类型与国际化 |
+| `packages/web-server` | 上游 Web 播放器服务 |
+| `sync-server` | 汐听配对同步服务、网页管理、Docker 配置与集成测试 |
+| `docs/images` | README 使用的界面截图 |
+
+安装包与本地构建缓存保存在忽略目录中，正式下载入口是 GitHub Releases。
 
 ## 从源码构建
 

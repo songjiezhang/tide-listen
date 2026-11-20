@@ -482,8 +482,26 @@ public final class PlayerActivity extends Activity {
         saveCatalog(new JSONObject(arg));
         break;
       case "createList":
-      case "renameList":
-        editName(action.equals("renameList") ? new JSONObject(arg) : null);
+        editName();
+        break;
+      case "bindExisting":
+        bindExisting(new JSONObject(arg));
+        break;
+      case "listProperties":
+        JSONObject props = new JSONObject(arg);
+        editPlaylist("正在保存列表属性", () -> {
+          store.desktop.properties(props.getString("id"), props.getString("name").trim(),
+              props.optJSONObject("online"), props.optBoolean("autoSync"));
+          return "";
+        });
+        break;
+      case "moveItem":
+        JSONObject move = new JSONObject(arg);
+        editPlaylist("正在保存顺序", () -> {
+          store.desktop.move(move.getString("listId"), move.getString("moved"),
+              move.getString("anchor"), move.getBoolean("after"));
+          return "";
+        });
         break;
       case "fav":
         editPlaylist(
@@ -1068,11 +1086,31 @@ public final class PlayerActivity extends Activity {
     });
   }
 
-  private void editName(JSONObject info) {
+  private void bindExisting(JSONObject binding) throws JSONException {
+    ArrayList<JSONObject> choices = new ArrayList<>();
+    ArrayList<String> labels = new ArrayList<>();
+    JSONArray lists = store.desktop.lists();
+    for (int i = 0; i < lists.length(); i++) {
+      JSONObject list = lists.getJSONObject(i);
+      if ("general".equals(list.optString("type"))) {
+        choices.add(list);
+        labels.add(list.getString("name"));
+      }
+    }
+    menu("选择要关联的普通列表", labels.toArray(new String[0]), index -> {
+      JSONObject target = choices.get(index);
+      editPlaylist("正在关联在线来源", () -> {
+        store.desktop.properties(target.getString("id"), target.getString("name"), binding, false);
+        return "已关联来源，可在歌单内更新列表";
+      });
+    });
+  }
+
+  private void editName() {
     LinearLayout layout = form();
-    EditText input = field(layout, "歌单名称", info == null ? "" : info.optString("name"), 1);
+    EditText input = field(layout, "歌单名称", "", 1);
     dialog(
-        info == null ? "新建歌单" : "重命名歌单",
+        "新建歌单",
         layout,
         "保存",
         () -> {
@@ -1084,16 +1122,15 @@ public final class PlayerActivity extends Activity {
           editPlaylist(
               "正在保存歌单",
               () -> {
-                if (info == null) {
-                  String id = store.desktop.create(name, "", new JSONArray());
-                  main.post(
+                String id = store.desktop.create(name, "", new JSONArray());
+                main.post(
                       () -> {
                         try {
                           emit("openList", obj("id", id));
                         } catch (JSONException ignored) {
                         }
                       });
-                } else store.desktop.rename(info.getString("id"), name);
+
                 return "";
               });
         });
@@ -1232,9 +1269,9 @@ public final class PlayerActivity extends Activity {
         () -> {
           String result;
           try {
-            result = copyCatalog(request, store.desktop.scopeId());
+            result = OnlinePlaylist.fetch(this, store.desktop, request, store.desktop.scopeId());
           } catch (Exception e) {
-            result = "收藏失败 · " + e.getMessage();
+            result = "在线列表操作失败 · " + e.getMessage();
           }
           String message = result;
           main.post(
@@ -1250,31 +1287,6 @@ public final class PlayerActivity extends Activity {
             "chart-detail".equals(request.optString("action")) ? "正在读取完整榜单" : "正在读取完整歌单",
             Toast.LENGTH_SHORT)
         .show();
-  }
-
-  private String copyCatalog(JSONObject request, String scope) throws Exception {
-    JSONArray rows = new JSONArray();
-    Set<String> seen = new HashSet<>();
-    if (!"chart-detail".equals(request.optString("action"))) request.put("action", "detail");
-    String picture = "";
-    for (int page = 1; page <= 100; page++) {
-      JSONObject result = CatalogEngine.run(this, request.put("page", page));
-      JSONObject info = result.optJSONObject("info");
-      if (page == 1 && info != null) picture = info.optString("img");
-      JSONArray songs = result.getJSONArray("list");
-      int previous = rows.length();
-      for (int i = 0; i < songs.length(); i++) {
-        JSONObject row = songs.getJSONObject(i);
-        if (seen.add(row.getString("id"))) rows.put(row);
-      }
-      int limit = Math.max(1, result.optInt("limit", songs.length()));
-      if (page * limit >= result.optInt("total", songs.length())) {
-        store.desktop.saveOnline(scope, request.getString("name"), picture, rows);
-        return "已加入「我的列表」";
-      }
-      if (rows.length() == previous) throw new IOException("该来源暂未返回完整歌单，请稍后重试");
-    }
-    throw new IOException("该歌单超出收藏上限");
   }
 
   @Override

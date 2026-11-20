@@ -119,6 +119,22 @@
         </div>
       </div>
     </section>
+    <dialog id="playlistDialog" aria-labelledby="playlistTitle">
+      <form id="playlistForm">
+        <h2 id="playlistTitle">编辑列表</h2>
+        <label>列表名称<input name="listName" required maxlength="100"></label>
+        <label>列表类型<select name="listType"><option value="general">普通列表</option><option value="online">在线列表</option></select></label>
+        <fieldset class="bindingFields">
+          <label>来源<select name="platform"><option value="kg">酷狗音乐</option><option value="kw">酷我音乐</option><option value="wy">网易音乐</option><option value="tx">企鹅音乐</option><option value="mg">咪咕音乐</option></select></label>
+          <label>资源类型<select name="kind"><option value="songlist">歌单</option><option value="topSongs">排行榜</option></select></label>
+          <label>原列表链接或 ID<input name="syncId" maxlength="512"></label>
+          <label><input name="autoSync" type="checkbox"> 打开时自动更新（每天一次）</label>
+          <small>更新列表会采用来源当前的歌曲和顺序。</small>
+        </fieldset>
+        <div class="actions"><button type="button" data-cancel>取消</button><button class="primary" type="submit">保存</button></div>
+      </form>
+    </dialog>
+    <script src="playlist-controls.js"></script>
     <script src="lyrics.js"></script>
     <script src="player.js"></script>
   </body>

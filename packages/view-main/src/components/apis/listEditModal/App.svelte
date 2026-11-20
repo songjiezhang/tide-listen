@@ -47,6 +47,8 @@
     targetId = _targetId
     isEdit = _isEdit
     form?.reset()
+    targetInfo = null
+    listType = 'general'
     if (_isEdit) {
       const info = musicLibraryState.userLists.find((l) => l.id == _targetId)
       if (!info) return
@@ -67,7 +69,7 @@
       <h2>{isEdit ? $t('edit_list_modal__edit_title') : $t('edit_list_modal__new_title')}</h2>
     </div>
     <div class="content">
-      <ListTypeSelect bind:value={listType} disabled={isEdit} />
+      <ListTypeSelect bind:value={listType} editableType={isEdit ? targetInfo?.type : undefined} />
       {#if listType == 'general'}
         <GeneralListForm bind:this={form} {targetId} item={targetInfo as AnyListen.List.GeneralListInfo | null} />
       {:else if listType == 'local'}

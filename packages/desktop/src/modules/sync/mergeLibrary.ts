@@ -62,6 +62,7 @@ function mergeList<T extends Playlist>(base: T | undefined, local: T, remote: T)
   meta.songCount = list.length
   return {
     ...remote,
+    type: changed('type') ? local.type : remote.type,
     name: changed('name') ? local.name : remote.name,
     parentId: changed('parentId') ? local.parentId : remote.parentId,
     meta,

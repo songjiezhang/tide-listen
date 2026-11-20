@@ -150,6 +150,10 @@ export const createUserList = async (position: number, info: AnyListen.List.User
 export const updateUserList = async (info: AnyListen.List.UserListInfo) => {
   const targetList = musicLibraryState.userLists.find((l) => l.id === info.id)
   if (!targetList) return
+  if (targetList.type === 'general' && info.type === 'online') {
+    await updateUserListFromRemote({ lists: [{ ...info, meta: { ...info.meta, updateTime: Date.now() } }] })
+    return
+  }
   switch (targetList.type) {
     case 'general':
       await updateUserListFromRemote({

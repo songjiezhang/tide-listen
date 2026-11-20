@@ -80,7 +80,11 @@ final class DesktopPlaylists {
               "coverFallback",
               cover.isEmpty() ? "" : songCover,
               "editable",
-              "general".equals(list.optString("type"))));
+              "general".equals(list.optString("type")) || "online".equals(list.optString("type")),
+              "type", list.optString("type"),
+              "online", OnlinePlaylist.binding(list),
+              "autoSync", listMeta != null && listMeta.optBoolean("autoSync"),
+              "syncTime", listMeta == null ? 0 : listMeta.optLong("syncTime")));
     }
   }
 
@@ -225,6 +229,37 @@ final class DesktopPlaylists {
         }
       return;
     }
+    if ("properties".equals(action)) {
+      JSONObject meta = list.getJSONObject("meta");
+      list.put("name", edit.getString("name"));
+      if (edit.has("online")) OnlinePlaylist.bind(list, edit.getJSONObject("online"));
+      if ("online".equals(list.optString("type"))) meta.put("autoSync", edit.optBoolean("autoSync"));
+      meta.put("updateTime", edit.getLong("time"));
+      return;
+    }
+    if ("refresh".equals(action)) {
+      if (!OnlinePlaylist.matches(list, edit.getJSONObject("online"))) return;
+      JSONObject meta = list.getJSONObject("meta");
+      if (meta.optLong("syncTime") > edit.getLong("time")) return;
+      JSONArray songs = edit.getJSONArray("rows");
+      list.put("list", songs);
+      meta.put("syncTime", edit.getLong("time")).put("songCount", songs.length());
+      if (!edit.optString("pic").isEmpty()) meta.put("pic", edit.getString("pic"));
+      return;
+    }
+    if ("moveList".equals(action) || "moveSong".equals(action)) {
+      JSONArray items = "moveList".equals(action) ? full.getJSONArray("userList") : list.getJSONArray("list");
+      String moved = edit.getString("moved"), anchor = edit.getString("anchor");
+      int from = indexOf(items, moved), target = indexOf(items, anchor);
+      if (from < 0 || target < 0 || from == target) return;
+      JSONObject row = items.getJSONObject(from);
+      items.remove(from);
+      int destination = indexOf(items, anchor) + (edit.getBoolean("after") ? 1 : 0);
+      for (int i = items.length(); i > destination; i--) items.put(i, items.get(i - 1));
+      items.put(destination, row);
+      row.getJSONObject("meta").put("posTime", edit.getLong("time"));
+      return;
+    }
     if ("rename".equals(action)) {
       String name = edit.getString("name");
       if (!name.equals(list.getString("name"))) {
@@ -326,23 +361,61 @@ final class DesktopPlaylists {
     return id;
   }
 
-  synchronized void saveOnline(String expectedScope, String name, String cover, JSONArray rows)
-      throws Exception {
-    if (!expectedScope.equals(scopeId())) throw new IOException("同步账号已变更，请重新收藏");
-    create(name, cover, rows);
+  private static int indexOf(JSONArray items, String id) throws JSONException {
+    for (int i = 0; i < items.length(); i++)
+      if (id.equals(items.getJSONObject(i).getString("id"))) return i;
+    return -1;
+  }
+
+  synchronized void move(String listId, String moved, String anchor, boolean after) throws Exception {
+    loadCachedOnce();
+    boolean lists = listId.isEmpty();
+    JSONObject list = lists ? null : find(view.full, listId);
+    if (!lists && list == null) throw new IOException("歌单已被移除");
+    JSONArray items = lists ? view.full.getJSONArray("userList") : list.getJSONArray("list");
+    int from = indexOf(items, moved), to = indexOf(items, anchor);
+    if (from < 0 || to < 0 || from == to || from == to + (after ? 1 : -1)) return;
+    enqueue(obj("action", lists ? "moveList" : "moveSong", "listId", lists ? moved : listId,
+        "moved", moved, "anchor", anchor, "after", after, "time", System.currentTimeMillis()));
+  }
+
+  synchronized void properties(String id, String name, JSONObject binding, boolean autoSync) throws Exception {
+    loadCachedOnce();
+    JSONObject list = find(view.full, id);
+    if (list == null || !("general".equals(list.optString("type")) || "online".equals(list.optString("type"))))
+      throw new IOException("此歌单无法编辑");
+    if (name.isEmpty() || name.length() > 100) throw new IOException("请输入 1 至 100 个字符的歌单名称");
+    if (binding != null) OnlinePlaylist.validate(binding);
+    JSONObject edit = obj("action", "properties", "listId", id, "name", name,
+        "time", System.currentTimeMillis(), "autoSync", autoSync);
+    if (binding != null) edit.put("online", binding);
+    enqueue(edit);
+  }
+
+  synchronized void saveOnline(String expectedScope, String id, String name, String cover,
+      JSONObject binding, JSONArray rows, long started) throws Exception {
+    if (!expectedScope.equals(scopeId())) throw new IOException("同步账号已变更，请重试");
+    OnlinePlaylist.validate(binding);
+    if (id.isEmpty()) {
+      JSONArray users = view.full.getJSONArray("userList");
+      for (int i = 0; i < users.length(); i++)
+        if (OnlinePlaylist.matches(users.getJSONObject(i), binding)) throw new IOException("已收藏此在线列表");
+      JSONObject list = newList(UUID.randomUUID().toString(), name, cover, false);
+      OnlinePlaylist.bind(list, binding);
+      list.put("list", rows).getJSONObject("meta").put("songCount", rows.length()).put("syncTime", started);
+      enqueue(obj("action", "create", "listId", list.getString("id"), "created", list));
+    } else {
+      JSONObject list = find(view.full, id);
+      if (list == null || !OnlinePlaylist.matches(list, binding))
+        throw new IOException("歌单来源已更改，请重新更新");
+      enqueue(obj("action", "refresh", "listId", id, "online", binding, "rows", rows,
+          "pic", cover, "time", started));
+    }
   }
 
   synchronized void delete(String id) throws Exception {
     if ("love".equals(id) || "default".equals(id)) return;
     enqueue(obj("action", "delete", "listId", id));
-  }
-
-  synchronized void rename(String id, String name) throws Exception {
-    loadCachedOnce();
-    JSONObject list = find(view.full, id);
-    if (list == null || "default".equals(list.optString("type"))) throw new IOException("此歌单无法重命名");
-    enqueue(
-        obj("action", "rename", "listId", id, "name", name, "time", System.currentTimeMillis()));
   }
 
   synchronized void add(String id, JSONArray rows) throws Exception {

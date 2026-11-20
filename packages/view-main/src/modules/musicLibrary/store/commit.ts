@@ -103,7 +103,7 @@ const updateDefaultListInfo = (
   list.meta.songCount = meta.songCount
   list.meta.pic = meta.pic
 }
-const updateList = ({ name, id, meta }: AnyListen.List.MyListInfo) => {
+const updateList = ({ name, id, type, meta }: AnyListen.List.MyListInfo) => {
   switch (id) {
     case musicLibraryState.defaultList.id:
       updateDefaultListInfo(musicLibraryState.defaultList, meta)
@@ -117,6 +117,7 @@ const updateList = ({ name, id, meta }: AnyListen.List.MyListInfo) => {
     default: {
       let targetList = musicLibraryState.userLists.find((l) => l.id == id)
       if (!targetList) return
+      if (type !== 'default') targetList.type = type
       targetList.name = name
       targetList.meta = meta
       break
