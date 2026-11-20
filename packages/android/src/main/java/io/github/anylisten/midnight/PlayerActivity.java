@@ -37,7 +37,7 @@ public final class PlayerActivity extends Activity {
   private MediaController player;
   private CancellationSignal lyricRequest;
   private boolean ready, visible, busy, startupResume, choosingFile;
-  private String status = "", syncStatus = "", sourceUpdateStatus = "";
+  private String status = "", syncStatus = "", changeWatchError = "", sourceUpdateStatus = "";
   private String importTarget = "default";
   private boolean syncRunning, playlistReady, savingCatalog;
   private boolean remoteListsChanged, remoteSourcesChanged, checkLocalSources;
@@ -281,6 +281,8 @@ public final class PlayerActivity extends Activity {
               store.prefs.getBoolean("resumeOnOpen", true),
               "syncState",
               syncRunning ? "正在同步…" : syncStatus,
+              "changeWatchError",
+              changeWatchError,
               "syncing",
               syncRunning,
               "pending",
@@ -883,6 +885,7 @@ public final class PlayerActivity extends Activity {
         if (isDestroyed()) return;
         remoteListsChanged = false;
         remoteSourcesChanged = false;
+        changeWatchError = "";
         checkLocalSources = TideSync.sourcesEnabled(store);
         scheduleSync(500);
       });
@@ -970,10 +973,9 @@ public final class PlayerActivity extends Activity {
   }
 
   private void scheduleSync(long delay) {
-    if (isDestroyed() || !TideSync.configured(store)) return;
     cancelChangeWatch();
     main.removeCallbacks(autoSync);
-    main.postDelayed(autoSync, delay);
+    if (!isDestroyed() && TideSync.configured(store)) main.postDelayed(autoSync, delay);
   }
 
   private void watchChanges() {
@@ -983,20 +985,26 @@ public final class PlayerActivity extends Activity {
         if (isDestroyed() || call != changeWatch) return;
         changeWatch = null;
         if (error != null) {
-          syncStatus = error;
-          refresh();
-          scheduleSync(15000);
+          retryChangeWatch(error);
           return;
+        }
+        if (!changeWatchError.isEmpty()) {
+          changeWatchError = "";
+          refresh();
         }
         remoteListsChanged |= lists;
         remoteSourcesChanged |= sources;
         scheduleSync(0);
       }));
     } catch (Exception error) {
-      syncStatus = error.getMessage();
-      refresh();
-      scheduleSync(15000);
+      retryChangeWatch(error.getMessage());
     }
+  }
+
+  private void retryChangeWatch(String error) {
+    changeWatchError = error == null || error.isEmpty() ? "无法监听远端变更" : error;
+    refresh();
+    scheduleSync(15000);
   }
 
   private void sync(boolean manual) {

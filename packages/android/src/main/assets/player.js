@@ -304,6 +304,8 @@ function settings() {
       : '<div class="setting"><div><strong>WebDAV</strong><small>' + esc(syncTime) +
         '</small></div>' + button('dav', '配置') + '</div>') +
     (data.syncConfigured ? button('sync', data.syncing ? '正在同步…' : '立即同步', 'sync') : '') +
+    (data.tide?.account && data.changeWatchError ?
+      '<p class="muted" role="status">' + esc('自动同步监听 · ' + data.changeWatchError + '，正在重试') + '</p>' : '') +
     '<p id="status" role="status">' + esc(data.status) + '</p></section><section><h2>播放与显示</h2>' +
     selectOption('playMode', '播放顺序', modes) +
     selectOption('quality', '首选音质', { auto: '音源默认', '128k': '标准 128k', '320k': '高品质 320k', flac: '无损 FLAC' }) +

@@ -6,12 +6,16 @@ import static io.github.anylisten.midnight.DesktopPlaylists.serialized;
 import android.content.Context;
 import java.io.IOException;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import okhttp3.*;
 import org.json.*;
 
 final class TideSync {
   private static final OkHttpClient CLIENT =
       LxEngine.HTTP.newBuilder().followRedirects(false).followSslRedirects(false).build();
+  // The server can hold a change request for 20 seconds when revisions match.
+  private static final OkHttpClient WATCH_CLIENT =
+      CLIENT.newBuilder().readTimeout(30, TimeUnit.SECONDS).callTimeout(35, TimeUnit.SECONDS).build();
   private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
   private static final String ADDRESS = "tide.address";
   private static final String TOKEN = "tide.token";
@@ -107,7 +111,7 @@ final class TideSync {
     if (watchSources) url.addQueryParameter("sources", Integer.toString(sources));
     Request request = new Request.Builder().url(url.build())
         .header("Authorization", "Bearer " + client.token).build();
-    Call call = CLIENT.newCall(request);
+    Call call = WATCH_CLIENT.newCall(request);
     call.enqueue(new Callback() {
       @Override
       public void onFailure(Call active, IOException error) {

@@ -7,8 +7,8 @@ android {
         applicationId 'io.github.anylisten.midnight'
         minSdk 23
         targetSdk 35
-        versionCode 16
-        versionName '0.13.6'
+        versionCode 17
+        versionName '0.13.7'
     }
     sourceSets.main.assets.srcDir '../shared/brand'
     flavorDimensions 'display'
