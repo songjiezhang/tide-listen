@@ -872,7 +872,7 @@
   "update_modal.new_ver_desc_2_2": "软件发布页",
   "update_modal.new_ver_desc_2_3": "下载。",
   "update_modal.new_ver_title": "🌟 发现新版本 🌟",
-  "update_modal.recheck_update": "重新检查更新",
+  "update_modal.recheck_update": "检查更新",
   "update_modal.unknown_desc_1": "更新信息获取失败，可能是无法访问 GitHub 导致的，请手动检查更新！",
   "update_modal.unknown_desc_2_1": "检查方法：打开",
   "update_modal.unknown_desc_2_2": "软件发布页",

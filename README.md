@@ -10,7 +10,7 @@
 
 | 设备 | 安装包文件名 | 软件内更新入口 |
 | --- | --- | --- |
-| Windows x64 | `TideListen-版本-x64-Setup.exe` | 设置 → 软件更新 → 重新检查更新 |
+| Windows x64 | `TideListen-版本-x64-Setup.exe` | 设置 → 软件更新 → 检查更新 |
 | Android 手机 | `TideListen-Android-版本.apk` | 设置 → 关于 → 检查更新 |
 | Android 横屏车机 | `TideListen-Android-Car-版本.apk` | 设置 → 关于 → 检查更新 |
 
