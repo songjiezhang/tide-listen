@@ -69,6 +69,7 @@ const defaultSetting: AnyListen.AppSetting = {
 
   'list.isShowActionBtn': true,
   'list.addMusicLocationType': 'top',
+  'list.showListeningList': false,
 
   'desktopLyric.enable': false,
   'desktopLyric.isLock': false,

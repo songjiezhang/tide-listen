@@ -10,6 +10,7 @@ const esc = (value) => String(value == null ? '' : value).replace(/[&<>"']/g, (c
 const platforms = { kg: '酷狗音乐', kw: '酷我音乐', wy: '网易音乐', tx: '企鹅音乐', mg: '咪咕音乐' }
 const modes = { order: '列表播放', loop: '列表循环', one: '单曲循环', shuffle: '随机播放' }
 const sorts = { hot: '最热', new: '最新', recommend: '推荐', hot_collect: '热藏', soaring: '飙升' }
+const catalogLabels = { list: '在线歌单', charts: '排行榜' }
 const tabs = Array.from(document.querySelectorAll('[data-tab]'))
 const catalog = new Map()
 const details = new Map()
@@ -29,6 +30,7 @@ let viewMarkup = '', filterMarkup = '', catalogMarkup = ''
 let favoriteKeys = new Set()
 let playing = { id: '', name: '', artist: '', cover: '', position: 0, duration: 0 }
 let tab = 'home', platform = 'kg', sort = '', tag = '', listId = '', online = null, token = 0
+let catalogMode = 'list'
 let visibleTracks = [], seekHeld = false, nativeReady = false
 let positionSample = 0, fullClock = 0
 const lyrics = createLyricsView((request) => app('lyrics', request), () => app('cancelLyrics'))
@@ -93,12 +95,17 @@ function options(list, selected) {
   return list.map((option) => '<option value="' + esc(option.id) + '"' +
     (String(option.id) === selected ? ' selected' : '') + '>' + esc(option.name) + '</option>').join('')
 }
-function browseKey() { return JSON.stringify([platform, sort, tag]) }
-function detailKey() { return online && JSON.stringify([online.platform, online.id]) }
+function browseKey() {
+  return JSON.stringify(catalogMode === 'charts' ? [catalogMode, platform] : [catalogMode, platform, sort, tag])
+}
+function detailKey() { return online && JSON.stringify([online.kind, online.platform, online.id]) }
+function detailAction() { return online.kind === 'charts' ? 'chart-detail' : 'detail' }
+function isDetailAction(kind) { return kind === 'detail' || kind === 'chart-detail' }
 
 function loadCatalog(kind, page = 1) {
-  const key = kind === 'options' ? platform : kind === 'detail' ? detailKey() : browseKey()
-  const states = kind === 'options' ? filters : kind === 'detail' ? details : catalog
+  const isDetail = isDetailAction(kind)
+  const key = kind === 'options' ? platform : isDetail ? detailKey() : browseKey()
+  const states = kind === 'options' ? filters : isDetail ? details : catalog
   const previous = states.get(key)
   if (!key || (previous && previous.loading)) return
   const state = previous || { rows: [] }
@@ -111,8 +118,8 @@ function loadCatalog(kind, page = 1) {
   const next = ++token
   requests.set(next, { kind, key, states, state, page })
   app('catalog', {
-    token: next, action: kind, platform: kind === 'detail' ? online.platform : platform,
-    sort, tag, id: kind === 'detail' ? online.id : '', page,
+    token: next, action: kind, platform: isDetail ? online.platform : platform,
+    sort, tag, id: isDetail ? online.id : '', page,
   })
 }
 window.catalogReply = ({ token, result, error, cached }) => {
@@ -144,7 +151,8 @@ window.catalogReply = ({ token, result, error, cached }) => {
       state.total = result.total
     }
   }
-  const active = kind === 'detail' ? key === detailKey() : !online && (kind === 'options' ? key === platform : key === browseKey())
+  const active = isDetailAction(kind) ? key === detailKey() :
+    !online && (kind === 'options' ? catalogMode === 'list' && key === platform : key === browseKey())
   if (tab === 'home' && active) draw()
 }
 
@@ -152,8 +160,8 @@ function openCatalog() {
   const now = Date.now()
   const page = catalog.get(browseKey())
   const categories = filters.get(platform)
-  if (!page || now - page.checkedAt > 300000) loadCatalog('list')
-  if (!categories || now - categories.checkedAt > 300000) loadCatalog('options')
+  if (!page || now - page.checkedAt > 300000) loadCatalog(catalogMode)
+  if (catalogMode === 'list' && (!categories || now - categories.checkedAt > 300000)) loadCatalog('options')
 }
 function selectTab(next) {
   tab = next
@@ -170,22 +178,25 @@ function card(item, id, subtitle, eager) {
     '<span class="cardWords"><strong>' + esc(item.name) + '</strong><small>' + esc(subtitle) + '</small></span></button>'
 }
 function loading(state, kind, noRows) {
-  if (state && state.loading) return noRows ? '<div class="empty" role="status">正在读取歌单…</div>' : ''
+  const subject = kind === 'charts' ? '排行榜' : kind === 'chart-detail' ? '榜单歌曲' : '歌单'
+  if (state && state.loading) return noRows ? '<div class="empty" role="status">正在读取' + subject + '…</div>' : ''
   if (state && state.error) return '<div class="empty" role="status">' +
-    (noRows ? '当前来源暂时无法获取歌单' : '刷新失败 · 正在显示上次的歌单') +
+    (noRows ? '当前来源暂时无法获取' : '刷新失败 · 正在显示上次的') + subject +
     '<small>' + esc(state.error) + '</small>' + button('retry-' + kind, '重试', 'sync') + '</div>'
-  if (noRows) return '<div class="empty">当前没有可显示的歌单</div>'
+  if (noRows) return '<div class="empty">当前没有可显示的' + subject + '</div>'
   return state && state.next ? '<div class="loadMore">' + button('more-' + kind, '加载更多') + '</div>' : ''
 }
 function homeFilters() {
+  const source = '<select id="sourceFilter" aria-label="在线资源来源">' +
+    options(Object.keys(platforms).map((id) => ({ id, name: platforms[id] })), platform) + '</select>'
+  if (catalogMode === 'charts') return source
   const choices = filters.get(platform) || {}
   const sortChoices = (choices.sorts || []).map((item) => {
     const name = item.name || ''
     const match = /^\{songlist\.sort\.(.+)\}$/.exec(name)
     return { id: item.id, name: match ? sorts[match[1]] || match[1] : name }
   })
-  return '<select id="sourceFilter" aria-label="歌单来源">' +
-    options(Object.keys(platforms).map((id) => ({ id, name: platforms[id] })), platform) + '</select>' +
+  return source +
     ((choices.tags || []).length || !choices.error ?
       '<select id="tagFilter" aria-label="歌单分类"' + ((choices.tags || []).length ? '' : ' disabled') + '>' +
       options([{ id: '', name: '全部分类' }].concat(choices.tags || []), tag) + '</select>' :
@@ -198,12 +209,15 @@ function homeLists() {
   const rows = state ? state.rows : []
   return '<div class="playlistGrid">' + rows.map((item, i) =>
     card(item, item.id, [platforms[platform], item.total != null ? item.total + ' 首' : item.author].filter(Boolean).join(' · '), i < 4)
-  ).join('') + '</div>' + loading(state, 'list', rows.length === 0)
+  ).join('') + '</div>' + loading(state, catalogMode, rows.length === 0)
+}
+function showPlaylist(id) {
+  return id !== 'default' || data.showListeningList
 }
 function myLists() {
   return '<div class="pageTitle"><h1>我的列表</h1>' + button('new', '新建', 'plus') + '</div>' +
     (data.playlistReady ? '<div class="playlistGrid">' +
-      data.playlists.map((item, i) => card(item, item.id, item.count + ' 首', i < 4)).join('') +
+      data.playlists.filter((item) => showPlaylist(item.id)).map((item, i) => card(item, item.id, item.count + ' 首', i < 4)).join('') +
       '</div>' : '<div class="empty" role="status">正在读取歌单…</div>')
 }
 function play(id) {
@@ -228,7 +242,7 @@ function trackRows(rows, remove) {
 function detail() {
   const remote = tab === 'home'
   const state = remote ? details.get(detailKey()) : null
-  const own = !remote && data.playlists.find((item) => item.id === listId)
+  const own = !remote && showPlaylist(listId) && data.playlists.find((item) => item.id === listId)
   if (!remote && !own) return myLists()
   const item = remote ? online : own
   const rows = remote ? state ? state.rows : [] : JSON.parse(App.songs(listId))
@@ -239,17 +253,17 @@ function detail() {
   const songWithCover = remote && rows.find((row) => row.cover && row.cover !== artwork)
   const fallback = remote ? (detailCover !== artwork && detailCover) ||
     (songWithCover && songWithCover.cover) : own.coverFallback
-  return button('back', remote ? '在线歌单' : '我的列表', 'back', 'back') +
+  return button('back', remote ? catalogLabels[online.kind] : '我的列表', 'back', 'back') +
     '<div class="detailHeader">' + cover(artwork, listId === 'love' ? 'heart' : 'disc', listId === 'love' ? 'lovedCover' : '', fallback, true) +
     '<div><h1>' + esc(item.name) + '</h1><p class="muted">' +
     esc([remote ? platforms[item.platform] : '', count == null ? '' : count + ' 首歌曲'].filter(Boolean).join(' · ')) +
     '</p></div></div><div class="actions">' +
     (rows.some((t) => t.playable !== false) ? button('play-all', '播放全部', 'play', 'primary') : '') +
-    (remote ? (rows.length ? button('save-online', '收藏歌单', 'bookmark') : '') :
+    (remote ? (rows.length ? button('save-online', online.kind === 'charts' ? '收藏榜单' : '收藏歌单', 'bookmark') : '') :
       button('add', '添加歌曲', 'plus') +
       (own.editable ? button('rename', '重命名', 'pencil') + button('delete', '删除歌单', 'trash', 'plain') : '')) +
     '</div>' + (rows.length ? trackRows(rows, !remote && listId !== 'love') : '') +
-    (remote ? loading(state, 'detail', rows.length === 0) :
+    (remote ? loading(state, detailAction(), rows.length === 0) :
       rows.length ? '' : '<div class="empty">这个歌单还没有歌曲</div>')
 }
 
@@ -295,6 +309,7 @@ function settings() {
     selectOption('quality', '首选音质', { auto: '音源默认', '128k': '标准 128k', '320k': '高品质 320k', flac: '无损 FLAC' }) +
     toggleOption('unmetered', '仅在非计费网络播放') +
     toggleOption('keepScreen', '播放时保持亮屏', '播放器位于前台时生效') +
+    toggleOption('showListeningList', '显示试听列表') +
     (data.car ? toggleOption('resumeOnOpen', '打开应用时自动续播', '从上次保存的歌曲和进度继续播放') +
       toggleOption('largeControls', '加大文字与触控区') : '') + '</section><section><h2>音源</h2>' +
     '<div class="setting sourceSetting"><div><strong>音源管理</strong><small>' +
@@ -317,7 +332,9 @@ function draw() {
     else btn.removeAttribute('aria-current')
   })
   const showHome = tab === 'home' && !online
-  const markup = showHome ? '<div class="pageTitle"><h1>在线歌单</h1></div><div class="filters"></div><div id="catalogResults"></div>' :
+  const markup = showHome ? '<div class="catalogSwitch" role="group" aria-label="在线资源">' +
+    Object.entries(catalogLabels).map(([mode, label]) => '<button type="button" data-catalog-mode="' + mode + '">' + label + '</button>').join('') +
+    '</div><div class="filters"></div><div id="catalogResults"></div>' :
     tab === 'settings' ? settings() : listId || online ? detail() : myLists()
   if (markup !== viewMarkup) {
     replaceCoverMarkup(view, markup)
@@ -325,6 +342,9 @@ function draw() {
     filterMarkup = catalogMarkup = ''
   }
   if (showHome) {
+    for (const button of view.querySelectorAll('[data-catalog-mode]')) {
+      button.setAttribute('aria-pressed', String(button.dataset.catalogMode === catalogMode))
+    }
     const choices = homeFilters()
     if (choices !== filterMarkup) {
       view.querySelector('.filters').innerHTML = choices
@@ -440,7 +460,7 @@ window.library = (update) => {
   badge.hidden = !data.syncConfigured
   badge.dataset.state = data.pending ? 'pending' : data.syncing ? 'sync' : ''
   badge.querySelector('span').textContent = data.syncState || (data.pending ? '修改待同步' : data.lastSync ? '歌单已同步' : '等待同步')
-  if (listId && data.playlistReady && !data.playlists.some((list) => list.id === listId)) listId = ''
+  if (listId && (!showPlaylist(listId) || (data.playlistReady && !data.playlists.some((list) => list.id === listId)))) listId = ''
   draw()
 }
 window.transport = (state) => {
@@ -453,7 +473,7 @@ window.transport = (state) => {
 }
 window.openList = ({ id }) => {
   tab = 'lists'
-  listId = id
+  listId = showPlaylist(id) ? id : ''
   online = null
   view.scrollTop = 0
   draw()
@@ -463,13 +483,19 @@ view.addEventListener('click', (event) => {
   const target = event.target.closest('button')
   if (!target) return
   const item = target.dataset
-  if (item.open !== undefined) {
+  if (item.catalogMode) {
+    if (catalogMode === item.catalogMode) return
+    catalogMode = item.catalogMode
+    view.scrollTop = 0
+    openCatalog()
+    draw()
+  } else if (item.open !== undefined) {
     if (tab === 'lists') listId = item.open
     else {
-      const row = catalog.get(browseKey()).rows.find((itemRow) => String(itemRow.id) === item.open)
+      const row = catalog.get(browseKey())?.rows.find((itemRow) => String(itemRow.id) === item.open)
       if (!row) return
-      online = Object.assign({ platform }, row)
-      if (!details.has(detailKey())) loadCatalog('detail')
+      online = { ...row, platform, kind: catalogMode }
+      if (!details.has(detailKey())) loadCatalog(detailAction())
     }
     view.scrollTop = 0
     draw()
@@ -487,15 +513,16 @@ view.addEventListener('click', (event) => {
     if (list) app('renameList', { id: listId, name: list.name })
   } else if (item.do === 'add') app('add', listId)
   else if (item.do === 'delete') app('deleteList', listId)
-  else if (item.do === 'save-online' && online) app('saveCatalog', { id: String(online.id), name: online.name, platform: online.platform })
-  else if (item.do?.startsWith('tideSources:')) app('tideSources', item.do.slice('tideSources:'.length))
+  else if (item.do === 'save-online' && online) {
+    app('saveCatalog', { action: detailAction(), id: String(online.id), name: online.name, platform: online.platform })
+  } else if (item.do?.startsWith('tideSources:')) app('tideSources', item.do.slice('tideSources:'.length))
   else if (['tidePair', 'tideDisconnect', 'tideApprove', 'dav', 'sync', 'source', 'updateSources', 'checkAppUpdate', 'projectSource'].includes(item.do)) app(item.do)
   else if (item.do === 'retry-options') {
     loadCatalog('options')
     draw()
-  } else if (item.do && /^(retry|more)-(list|detail)$/.test(item.do)) {
-    const kind = item.do.split('-')[1]
-    const state = kind === 'detail' ? details.get(detailKey()) : catalog.get(browseKey())
+  } else if (item.do && /^(retry|more)-(list|detail|charts|chart-detail)$/.test(item.do)) {
+    const kind = item.do.slice(item.do.indexOf('-') + 1)
+    const state = isDetailAction(kind) ? details.get(detailKey()) : catalog.get(browseKey())
     loadCatalog(kind, item.do.startsWith('retry') ? state.failedPage : state.next)
     draw()
   }

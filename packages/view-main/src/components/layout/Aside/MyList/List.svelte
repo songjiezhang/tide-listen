@@ -10,6 +10,8 @@
   import type { ComponentExports } from 'svelte'
   import { sortable } from '@/shared/compositions/sortable.svelte'
   import { updateUserListPosition } from './action'
+  import { useSettingValue } from '@/modules/setting/reactive.svelte'
+  import { LIST_IDS } from '@any-listen/common/constants'
   // console.log(params)
   const listItemHeight = useListItemHeight(import.meta.env.VITE_IS_DESKTOP ? 3.75 : 3.2)
   const coverSize = $derived(listItemHeight.val * (import.meta.env.VITE_IS_DESKTOP ? 2 / 3 : 0.64))
@@ -19,7 +21,13 @@
   let menu: ComponentExports<typeof Menu>
 
   const userLists = useUserList(null)
-  const lists = $derived([...$defaultLists, ...userLists.val])
+  const showListeningList = useSettingValue('list.showListeningList')
+  const visibleDefaultLists = $derived(
+    !import.meta.env.VITE_IS_DESKTOP || showListeningList.val
+      ? $defaultLists
+      : $defaultLists.filter((list) => list.id !== LIST_IDS.DEFAULT)
+  )
+  const lists = $derived([...visibleDefaultLists, ...userLists.val])
   let activeIndex = $state(-1)
 
   const showMenu = (item: AnyListen.List.MyListInfo | null, position: Position) => {
@@ -48,7 +56,7 @@
         class="list"
         {@attach sortable({
           onupdate: (parentId, id, toTargetId, position) => {
-            void updateUserListPosition(id, position - $defaultLists.length)
+            void updateUserListPosition(id, position - visibleDefaultLists.length)
           },
           filter: 'default-list',
           activeElement: 'my-list-container',

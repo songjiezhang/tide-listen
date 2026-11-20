@@ -616,6 +616,7 @@
   "settings.hotkey.remove": "删除",
   "settings.hotkey.unset": "未设置",
   "settings.list": "列表设置",
+  "settings.list.show_listening_list": "显示试听列表",
   "settings.list.add_music_location_type": "添加歌曲到列表时的位置",
   "settings.list.add_music_location_type_bottom": "底部",
   "settings.list.add_music_location_type_top": "顶部",

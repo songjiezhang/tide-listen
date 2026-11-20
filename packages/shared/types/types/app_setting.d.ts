@@ -332,6 +332,7 @@ declare global {
        * 添加歌曲到我的列表时的方式
        */
       'list.addMusicLocationType': AddMusicLocationType
+      'list.showListeningList': boolean
 
       /**
        * 是否启用桌面歌词

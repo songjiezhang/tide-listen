@@ -309,6 +309,13 @@ export const settings: SettingListSection[] = [
         description: 'settings.list.is_show_action_btn_desc',
         type: 'boolean',
       },
+      import.meta.env.VITE_IS_DESKTOP
+        ? {
+            field: 'list.showListeningList',
+            name: 'settings.list.show_listening_list',
+            type: 'boolean',
+          }
+        : null,
       {
         field: 'list.addMusicLocationType',
         name: 'settings.list.add_music_location_type',

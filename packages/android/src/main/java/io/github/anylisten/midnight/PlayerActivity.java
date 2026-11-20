@@ -265,6 +265,8 @@ public final class PlayerActivity extends Activity {
               playlistReady,
               "catalogSelection",
               store.prefs.getString("catalogSelection", "{}"),
+              "showListeningList",
+              store.prefs.getBoolean("showListeningList", false),
               "quality",
               store.prefs.getString("quality", "auto"),
               "playMode",
@@ -522,6 +524,10 @@ public final class PlayerActivity extends Activity {
         break;
       case "resumeOnOpen":
         if (!BuildConfig.FLAVOR.equals("dashboard")) return;
+        store.prefs.edit().putBoolean(action, "true".equals(arg)).apply();
+        refresh();
+        break;
+      case "showListeningList":
         store.prefs.edit().putBoolean(action, "true".equals(arg)).apply();
         refresh();
         break;
@@ -1148,7 +1154,8 @@ public final class PlayerActivity extends Activity {
         () -> {
           int token = request.optInt("token");
           String action = request.optString("action"), platform = request.optString("platform");
-          boolean firstPage = "list".equals(action) && request.optInt("page") == 1;
+          boolean browsing = "list".equals(action) || "charts".equals(action);
+          boolean firstPage = browsing && request.optInt("page") == 1;
           String cacheKey = null;
           try {
             if (MusicStore.PLATFORMS.contains(platform)
@@ -1160,7 +1167,7 @@ public final class PlayerActivity extends Activity {
                       .put(request.optString("sort"))
                       .put(request.optString("tag"))
                       .toString();
-              if ("options".equals(action)) cacheKey = "options:" + platform;
+              if (!"list".equals(action)) cacheKey = action + ":" + platform;
               byte[] bytes = CatalogEngine.pages(this).read(cacheKey);
               if (bytes != null || ("options".equals(action) && "wy".equals(platform))) {
                 JSONObject cached =
@@ -1178,11 +1185,11 @@ public final class PlayerActivity extends Activity {
           }
           try {
             JSONObject result = CatalogEngine.run(this, request);
-            if ("detail".equals(action)) {
+            if ("detail".equals(action) || "chart-detail".equals(action)) {
               result.put("list", store.catalogSongs(result.getJSONArray("list")));
               JSONObject info = result.optJSONObject("info");
               if (info != null) info.put("cover", CatalogEngine.art(info.optString("img")));
-            } else if ("list".equals(action)) {
+            } else if (browsing) {
               JSONArray rows = result.getJSONArray("list");
               for (int i = 0; i < rows.length(); i++) {
                 JSONObject row = rows.getJSONObject(i);
@@ -1203,7 +1210,7 @@ public final class PlayerActivity extends Activity {
                       "token",
                       token,
                       "error",
-                      e.getMessage() == null ? "暂时无法读取在线歌单" : e.getMessage()));
+                      e.getMessage() == null ? "暂时无法读取在线资源" : e.getMessage()));
             } catch (JSONException ignored) {
             }
           }
@@ -1230,13 +1237,17 @@ public final class PlayerActivity extends Activity {
                 if (TideSync.configured(store)) scheduleSync(400);
               });
         });
-    Toast.makeText(this, "正在读取完整歌单", Toast.LENGTH_SHORT).show();
+    Toast.makeText(
+            this,
+            "chart-detail".equals(request.optString("action")) ? "正在读取完整榜单" : "正在读取完整歌单",
+            Toast.LENGTH_SHORT)
+        .show();
   }
 
   private String copyCatalog(JSONObject request, String scope) throws Exception {
     JSONArray rows = new JSONArray();
     Set<String> seen = new HashSet<>();
-    request.put("action", "detail");
+    if (!"chart-detail".equals(request.optString("action"))) request.put("action", "detail");
     String picture = "";
     for (int page = 1; page <= 100; page++) {
       JSONObject result = CatalogEngine.run(this, request.put("page", page));

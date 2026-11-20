@@ -617,6 +617,7 @@
   "settings.hotkey.remove": "Remove",
   "settings.hotkey.unset": "Not set",
   "settings.list": "List settings",
+  "settings.list.show_listening_list": "Show listening list",
   "settings.list.add_music_location_type": "Position when adding songs to list",
   "settings.list.add_music_location_type_bottom": "Bottom",
   "settings.list.add_music_location_type_top": "Top",

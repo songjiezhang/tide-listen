@@ -18,6 +18,7 @@
   import { LIST_IDS } from '@any-listen/common/constants'
   import { resourceList } from '@/modules/extension/reactive.svelte'
   import { LIST_PIC_ICON } from '@/shared/constants'
+  import { useSettingValue } from '@/modules/setting/reactive.svelte'
 
   let list = $state.raw<AnyListen.Music.MusicInfo[]>([])
   let musicList = $state<ComponentExports<typeof MusicList> | null>(null)
@@ -88,7 +89,10 @@
         } satisfies ListInfo
     }
   }
-  const targetListInfo = $derived(getTargetActiveListInfo($userListsAll, $query.id))
+  const showListeningList = useSettingValue('list.showListeningList')
+  const hideListeningList = $derived(import.meta.env.VITE_IS_DESKTOP && !showListeningList.val)
+  const activeId = $derived(hideListeningList && $query.id === LIST_IDS.DEFAULT ? LIST_IDS.LOVE : $query.id)
+  const targetListInfo = $derived(getTargetActiveListInfo($userListsAll, activeId))
   const listCover = $derived(useListCover(targetListInfo))
   const listInfo = $derived(buildActiveListInfo($resourceList, targetListInfo, listCover.val))
 
@@ -99,11 +103,11 @@
   }
 
   $effect(() => {
-    const id = $query.id
+    const id = activeId
     if (id != currentId) {
       currentId = id
       untrack(() => {
-        const musicId = $query.mid
+        const musicId = $query.id === id ? $query.mid : undefined
         if (!id) return
         void Promise.all([getListMusics(id), getListScrollPosition(id)]).then(([_list, pos]) => {
           list = _list
@@ -144,11 +148,15 @@
   $effect(() => {
     const id = $query.id
     if (!$userListInited) return
-    if (id && $userListsAll.some((l) => l.id == id)) {
+    if (id !== activeId) {
+      void replace(`/library?id=${activeId}`)
+    } else if (id && $userListsAll.some((l) => l.id == id)) {
       void saveListPrevSelectId(id)
     } else {
       void getListPrevSelectId().then((prevId) => {
-        if (!prevId || $userListsAll.every((l) => l.id != prevId)) prevId = LIST_IDS.LOVE
+        if (!prevId || (hideListeningList && prevId === LIST_IDS.DEFAULT) || $userListsAll.every((l) => l.id != prevId)) {
+          prevId = LIST_IDS.LOVE
+        }
         void replace(`/library?id=${prevId}`)
       })
     }

@@ -47,6 +47,12 @@ h2 { font-size: 15px; margin: 8px 0 4px; }
 .muted, small { color: var(--muted); }
 small { font-size: 12px; }
 .pageTitle { justify-content: space-between; min-height: 43px; margin-bottom: 9px; }
+.catalogSwitch {
+  display: inline-flex; gap: 4px; margin: 0 0 12px; padding: 4px;
+  background: var(--panel); border-radius: 15px;
+}
+.catalogSwitch button { min-width: 90px; color: var(--muted); font-weight: 600; }
+.catalogSwitch button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 .filters { display: flex; flex-wrap: wrap; margin: 0 -4px 7px; }
 select {
   min-height: 44px; min-width: 0; color: var(--fg); background: var(--panel); border: 1px solid var(--border);
