@@ -65,6 +65,7 @@ function submit(form, label, fn) {
     event.preventDefault()
     void work(action, () => fn(Object.fromEntries(new FormData(form))))
   }
+  return action
 }
 
 function entry(parent, text, ...buttons) {
@@ -285,55 +286,107 @@ async function lists() {
   }
 }
 
+function sourceFormToggle(label, form, id) {
+  form.id = id
+  form.hidden = true
+  const toggle = element('button', label)
+  toggle.type = 'button'
+  toggle.onclick = () => {
+    form.hidden = !form.hidden
+    toggle.textContent = form.hidden ? label : '收起'
+    toggle.setAttribute('aria-expanded', String(!form.hidden))
+    if (!form.hidden) form.querySelector('input').focus()
+  }
+  toggle.setAttribute('aria-controls', id)
+  toggle.setAttribute('aria-expanded', 'false')
+  return toggle
+}
+
 async function sources() {
+  const expected = accountLoad
   const state = await api('sources')
-  const data = state.data || []
+  if (expected !== accountLoad) return
+  const data = state.data ?? []
   const panel = section()
-  const form = element('form')
+  const heading = element('div', '', 'row source-heading')
+  const form = element('form', '', 'source-form')
+  const add = sourceFormToggle('添加音源', form, 'source-create')
+  add.className = 'source-primary'
+  heading.append(element('h2', '已保存的音源'), add)
+  panel.append(heading, form)
+
   field(form, '名称', 'name').required = true
   field(form, '更新链接（可选）', 'url', 'url')
   const script = field(form, '上传 JS 文件', 'script', 'file')
   script.accept = '.js'
   script.required = true
-  async function save() { await put('sources', state.revision, data); await load() }
-  submit(form, '添加音源', async ({ name, url, script: file }) => {
+  script.parentElement.className = 'source-full'
+  async function save(next) { await put('sources', state.revision, next); await load() }
+  submit(form, '保存新音源', async ({ name, url, script: file }) => {
     if (file.size > 4 * 1024 * 1024) throw Error('音源文件过大')
-    data.push({ name, url, script: await file.text(), enabled: true })
-    await save()
-  })
-  panel.append(form)
+    await save([...data, { name, url, script: await file.text(), enabled: true }])
+  }).className = 'source-primary'
+
+  if (!data.length) {
+    panel.append(element('p', '暂无音源', 'dim source-empty'))
+    return
+  }
+  const list = element('div', '', 'source-list')
   for (const [index, row] of data.entries()) {
-    const item = element('div', '', 'entry')
-    item.append(element('strong', row.name))
-    const update = element('form')
+    const item = element('article', '', 'source-card')
+    item.setAttribute('aria-label', row.name)
+    const summary = element('div', '', 'row source-heading')
+    const info = element('div', '', 'source-info')
+    info.append(element('strong', row.name), element('span',
+      '优先级 ' + (index + 1) + ' · ' + (row.enabled ? '已启用' : '已停用'), 'dim'))
+    const actions = element('div', '', 'row source-actions')
+    for (const [offset, label] of [[-1, '上移'], [1, '下移']]) {
+      const move = button(label, async () => {
+        const next = [...data]
+        ;[next[index], next[index + offset]] = [next[index + offset], next[index]]
+        await save(next)
+      })
+      move.disabled = !data[index + offset]
+      move.className = 'source-order'
+      move.setAttribute('aria-label', label + '「' + row.name + '」')
+      actions.append(move)
+    }
+
+    const update = element('form', '', 'source-form')
+    const edit = sourceFormToggle('编辑', update, 'source-edit-' + index)
+    actions.append(edit)
+    summary.append(info, actions)
+    item.append(summary, update)
+
     field(update, '更新链接', 'url', 'url', row.url)
     const replacement = field(update, '替换 JS 文件（可选）', 'script', 'file')
     replacement.accept = '.js'
-    const enabled = field(update, '启用', 'enabled', 'checkbox', '1')
+    const enabled = field(update, '启用此音源', 'enabled', 'checkbox', '1')
     enabled.checked = row.enabled
-    submit(update, '保存音源', async ({ url, enabled, script: file }) => {
+    const enabledLabel = enabled.parentElement
+    enabledLabel.className = 'source-enabled'
+    enabledLabel.prepend(enabled)
+    const saveAction = submit(update, '保存修改', async ({ url, enabled, script: file }) => {
       if (file.size > 4 * 1024 * 1024) throw Error('音源文件过大')
-      if (file.size) row.script = await file.text()
-      row.url = url
-      row.enabled = Boolean(enabled)
-      await save()
+      const script = file.size ? await file.text() : row.script
+      const next = [...data]
+      next[index] = { ...row, url, enabled: Boolean(enabled), script }
+      await save(next)
     })
-    item.append(update)
-    const actions = []
-    for (const [offset, label] of [[-1, '上移'], [1, '下移']]) {
-      if (data[index + offset]) actions.push(button(label, async () => {
-        ;[data[index], data[index + offset]] = [data[index + offset], data[index]]
-        await save()
-      }))
-    }
-    actions.push(button('删除音源', async () => {
+    saveAction.className = 'source-primary'
+    const remove = button('删除音源', async () => {
       if (!confirm('删除音源「' + row.name + '」？')) return
-      data.splice(index, 1)
-      await save()
-    }))
-    entry(item, '优先级 ' + (index + 1), ...actions)
-    panel.append(item)
+      await save(data.filter((_, position) => position !== index))
+    })
+    remove.className = 'source-remove'
+    const footer = element('div', '', 'row source-heading source-full')
+    const editActions = element('div', '', 'row source-actions')
+    editActions.append(remove, saveAction)
+    footer.append(enabledLabel, editActions)
+    update.append(footer)
+    list.append(item)
   }
+  panel.append(list)
 }
 
 async function backups() {
