@@ -8,6 +8,8 @@ export const sortable = (options: { onupdate: (id: string, position: number) => 
       if (destroyed) return
       const sortable = Sortable.create(dom, {
         animation: 150,
+        forceFallback: true,
+        fallbackTolerance: 5,
         draggable: '.draggable-item',
         onStart: () => appEvent.drag(false),
         onMove: ({ related }) => related === dom || related.classList.contains('draggable-item'),

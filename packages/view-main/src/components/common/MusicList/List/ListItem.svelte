@@ -25,8 +25,7 @@
     selectedactive,
     playing,
     active,
-    draggable = false,
-    ondragstart, ondragend, ondragover, ondrop,
+    reorderable = false,
     oncontextmenu,
     onclick,
     onplay,
@@ -40,11 +39,7 @@
     selected?: boolean
     active?: boolean
     selectedactive?: boolean
-    draggable?: boolean
-    ondragstart?: (event: DragEvent) => void
-    ondragend?: () => void
-    ondragover?: (event: DragEvent) => void
-    ondrop?: (event: DragEvent) => void
+    reorderable?: boolean
     oncontextmenu?: MouseEventHandler<HTMLDivElement>
     onclick: (isKey: boolean) => void
     onplay?: () => void
@@ -97,14 +92,13 @@
   tabindex="0"
   onkeydown={handleClick}
   onclick={handleClick}
-  {draggable}
-  {ondragstart} {ondragend} {ondragover} {ondrop}
   {oncontextmenu}
   onmouseenter={() => (hovered = true)}
   onmouseleave={() => (hovered = false)}
 >
   {#if import.meta.env.VITE_IS_DESKTOP}
-    <span class="track-number" aria-hidden="true">
+    <span class="track-number" data-reorder-track={reorderable ? musicinfo.id : undefined}
+      title={reorderable ? $t('user_list_music_menu__sort') : undefined} aria-hidden="true">
       {#if playing}
         <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
           <rect x="2" y="6" width="3" height="8" rx="1.5" />
@@ -186,9 +180,10 @@
 </div>
 
 <style lang="less">
-  .container[draggable='true'] {
-    -webkit-user-drag: element;
-    .track-number { cursor: grab; }
+  [data-reorder-track] {
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
   }
   .container {
     position: relative;

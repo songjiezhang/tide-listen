@@ -47,7 +47,7 @@ export const buildConfig = (target, port = 9200, ipcScript) => {
     resolve: {
       alias: {
         '@': path.join(projectPath, 'src'),
-        sortablejs: path.join(projectPath, 'node_modules/sortablejs/modular/sortable.core.esm.js'),
+        sortablejs: path.join(projectPath, 'node_modules/sortablejs/modular/sortable.esm.js'),
       },
       conditions: [...defaultClientConditions],
     },

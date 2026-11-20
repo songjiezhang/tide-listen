@@ -15,6 +15,7 @@
   import Empty from '@/components/material/Empty.svelte'
   import ListSortModal from './components/ListSortModal.svelte'
   import { appEvent } from '@/modules/app/store/event'
+  import { trackOrder } from './trackOrder'
   import { getListMetaInfo } from '../shared'
 
   let {
@@ -41,19 +42,12 @@
 
   let virtualizedList = $state<ComponentExports<typeof VirtualizedList<AnyListen.Music.MusicInfo>> | null>(null)
 
-  let dragged: { listId: string; id: string } | null = null
   const canReorder = $derived(!!import.meta.env.VITE_IS_DESKTOP && source === 'local')
-  const dropTrack = (event: DragEvent, anchor: string) => {
-    if (!canReorder || !dragged || dragged.listId !== listinfo.id || dragged.id === anchor) return
-    const from = list.findIndex((song) => song.id === dragged!.id)
-    const to = list.findIndex((song) => song.id === anchor)
-    if (from < 0 || to < 0) return
-    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-    const after = event.clientY >= rect.top + rect.height / 2
-    const position = to + Number(after) - Number(from < to)
-    if (from !== position) void updateMusicPosition(listinfo.id, position + 1, [dragged.id])
-    dragged = null
-  }
+  const reorderTracks = trackOrder((id, index) => {
+    const from = list.findIndex((song) => song.id === id)
+    const position = index - Number(from < index)
+    if (canReorder && from >= 0 && from !== position) void updateMusicPosition(listinfo.id, position + 1, [id])
+  }, () => listItemHeight.val, () => list.length)
 
   let playingIndex = $derived(
     $playMusicInfo?.listId == listinfo.id ? list.findIndex((m) => m.id == $playMusicInfo.musicInfo.id) : -1
@@ -154,7 +148,7 @@
   }}
 />
 {#if list.length}
-  <div class="container">
+  <div class="container" {@attach reorderTracks}>
     <VirtualizedList
       {list}
       keyname="id"
@@ -165,18 +159,7 @@
     >
       {#snippet row(item, index)}
         <ListItem
-          draggable={canReorder}
-          ondragstart={(event) => {
-            if (!event.dataTransfer) return
-            dragged = { listId: listinfo.id, id: item.id }
-            event.dataTransfer.setData('application/x-tidelisten-track', item.id)
-            event.dataTransfer.effectAllowed = 'move'
-          }}
-          ondragend={() => { dragged = null }}
-          ondragover={(event) => {
-            if (dragged?.listId === listinfo.id) event.preventDefault()
-          }}
-          ondrop={(event) => { event.preventDefault(); dropTrack(event, item.id) }}
+          reorderable={canReorder}
           musicinfo={item}
           listid={listinfo.id}
           {source}
@@ -254,7 +237,17 @@
 <ListSortModal bind:visible={listsort} {listinfo} />
 
 <style lang="less">
+  :global(.track-drop-line) {
+    position: absolute;
+    right: 0;
+    left: 0;
+    z-index: 1;
+    height: 2px;
+    pointer-events: none;
+    background: var(--color-primary);
+  }
   .container {
+    position: relative;
     flex: auto;
     min-height: 0;
     // padding: 0 5px;
