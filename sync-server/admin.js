@@ -114,6 +114,7 @@ const put = (kind, revision, data) => api(kind, 'PUT', { revision, data, operati
 function drawCodes() {
   clearTimeout(codeRefresh)
   const panel = $('pairing-codes')
+  if (!panel) return
   panel.replaceChildren()
   panel.hidden = !account?.codes.length
   if (panel.hidden) return
@@ -149,13 +150,13 @@ function drawCodes() {
 
 function scheduleCodeRefresh() {
   clearTimeout(codeRefresh)
-  if (account?.codes.length) {
+  if (tab === 'devices' && account?.codes.length) {
     codeRefresh = setTimeout(() => { void refreshCodes().catch(scheduleCodeRefresh) }, 15000)
   }
 }
 
 async function refreshCodes() {
-  if (!account) return
+  if (tab !== 'devices' || !account) return
   const expected = ++accountLoad
   let latest
   try { latest = await api('account') }
@@ -196,6 +197,9 @@ async function devices(uid) {
     status('已生成配对码')
   })
   panel.append(form)
+  const codes = section()
+  codes.id = 'pairing-codes'
+  drawCodes()
   const paired = section('已配对设备')
   if (!account.devices.length) paired.append(element('p', '暂无配对设备', 'dim'))
   for (const device of account.devices) {
@@ -374,7 +378,6 @@ async function load(uid) {
   }
   if (expected !== accountLoad) return
   account = latest
-  drawCodes()
   const title = adminPortal
     ? (account ? '同步管理' : '管理员登录')
     : (account ? '我的同步' : '账号登录')
