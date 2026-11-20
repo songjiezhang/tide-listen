@@ -6,6 +6,30 @@
 
 **本项目是Codex的个人Vibe Coding产物，未经广泛测试，不提供技术支持，敬请谅解。**
 
+## 界面预览
+
+v0.12.1 的三端共用「浪尖音符」图标。桌面截图来自 Windows 版实际运行界面。手机和车机预览分别用 Android 和 Android-Car 安装包中的页面按竖屏、横屏尺寸渲染。歌单、封面和歌词均为演示内容。
+
+### Windows 桌面端
+
+![Windows 桌面端打开「我喜欢」，左侧栏顶部是「浪尖音符」图标，底部是播放栏](docs/images/midnight/windows-playlist.png)
+
+### Android 手机
+
+| 我的列表 | 播放与同步歌词 |
+| --- | --- |
+| [![手机版「我的列表」，左上角是「浪尖音符」图标，底部是播放栏和导航](docs/images/midnight/phone-lists.png)](docs/images/midnight/phone-lists.png) | [![手机竖屏播放页，封面下方显示高亮歌词和播放控制](docs/images/midnight/phone-player.png)](docs/images/midnight/phone-player.png) |
+
+### Android 横屏车机
+
+**我的列表**
+
+![车机横屏「我的列表」，左上角是「浪尖音符」图标，歌单按四列排列](docs/images/midnight/car-lists.png)
+
+**播放与同步歌词**
+
+![车机横屏播放页，左侧为封面、进度和播放控制，右侧高亮当前歌词](docs/images/midnight/car-player.png)
+
 ## 下载安装
 
 本仓库以 **v0.13.7** 作为 Release 的起始版本。请在 [Releases](https://github.com/songjiezhang/tide-listen/releases/latest) 下载对应设备的安装包。
@@ -99,30 +123,6 @@ docker compose up -d
 以 `sync.example.com` 为例，管理员登录 `https://sync.example.com/admin` 创建用户，为同一用户的每台设备各生成一个配对码。客户端填写服务根地址 `https://sync.example.com` 和本机的配对码。桌面端配对后再选择「合并本机歌单并开启同步」或「从 WebDAV 迁移」。
 
 使用容器内的反向代理或迁移现有歌单时，参见 [Caddy 部署](sync-server/README.md#使用随附的-caddy)和 [WebDAV 歌单迁移](sync-server/README.md#从-webdav-迁移歌单)。
-
-## 界面预览
-
-v0.12.1 的三端共用「浪尖音符」图标。桌面截图来自 Windows 版实际运行界面。手机和车机预览分别用 Android 和 Android-Car 安装包中的页面按竖屏、横屏尺寸渲染。歌单、封面和歌词均为演示内容。
-
-### Windows 桌面端
-
-![Windows 桌面端打开「我喜欢」，左侧栏顶部是「浪尖音符」图标，底部是播放栏](docs/images/midnight/windows-playlist.png)
-
-### Android 手机
-
-| 我的列表 | 播放与同步歌词 |
-| --- | --- |
-| [![手机版「我的列表」，左上角是「浪尖音符」图标，底部是播放栏和导航](docs/images/midnight/phone-lists.png)](docs/images/midnight/phone-lists.png) | [![手机竖屏播放页，封面下方显示高亮歌词和播放控制](docs/images/midnight/phone-player.png)](docs/images/midnight/phone-player.png) |
-
-### Android 横屏车机
-
-**我的列表**
-
-![车机横屏「我的列表」，左上角是「浪尖音符」图标，歌单按四列排列](docs/images/midnight/car-lists.png)
-
-**播放与同步歌词**
-
-![车机横屏播放页，左侧为封面、进度和播放控制，右侧高亮当前歌词](docs/images/midnight/car-player.png)
 
 ## 仓库结构
 
