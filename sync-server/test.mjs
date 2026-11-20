@@ -168,12 +168,28 @@ try {
   await put('lists', car.token, 1, library, 409)
   assert.deepEqual((await info(car.token, 'lists')).data.data, amended)
   assert.equal((await request('/admin/api/lists', { cookie: owner })).data.data, null)
-  const sources = [{ name: '测试', script: '/* test-fixture-js */\nconst unrelated = 1', url: 'https://example.com/test.js', enabled: true }]
+  const forbidden = [
+    'file:///script.js', 'http://localhost/source.js', 'http://127.0.0.1/source.js',
+    'http://[::1]/source.js', 'http://169.254.1.10/source.js',
+  ]
+  await post('/login/api/source-download', { url: forbidden[0] }, { status: 401 })
+  await post('/login/api/source-download', { url: forbidden[0] }, { cookie: user, origin: 'https://invalid.example', status: 403 })
+  for (const url of forbidden) {
+    await post('/login/api/source-download', { url }, { cookie: user, status: 400 })
+  }
+
+  const sources = [
+    { script: '/**\n * @name 脚本自带名称\n */\nconst test = "test-fixture-js"', url: 'https://example.com/test.js', enabled: true },
+    { name: '手动名称', script: '/* @name 内置名称 */\nconst test = 2', url: '', enabled: false },
+    { name: '', script: 'const test = 3', url: 'https://example.com/fallback-name.js', enabled: true },
+  ]
   const sourceChange = info(phone.token, 'changes?lists=2&sources=0')
   await sleep(75)
   await put('sources', desktop.token, 0, sources)
   assert.deepEqual((await sourceChange).data, { lists: 2, sources: 1 })
-  assert.equal((await info(car.token, 'sources')).data.data[0].script, sources[0].script)
+  const transferred = (await info(car.token, 'sources')).data.data
+  assert.equal(transferred[0].script, sources[0].script)
+  assert.deepEqual(transferred.map((source) => source.name), ['脚本自带名称', '手动名称', 'fallback-name'])
   const encrypted = db.prepare("SELECT data FROM libraries WHERE kind='sources'").get().data
   assert(!encrypted.includes('test-fixture-js') && !encrypted.includes('example.com'))
   db.close()

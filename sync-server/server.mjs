@@ -1,5 +1,9 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomInt, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto'
-import { createServer } from 'node:http'
+import { lookup } from 'node:dns/promises'
+import { createServer, request as httpRequest } from 'node:http'
+import { request as httpsRequest } from 'node:https'
+import { BlockList, isIP } from 'node:net'
+import { Script } from 'node:vm'
 import {
   closeSync, constants, existsSync, fchmodSync, fchownSync, fstatSync,
   mkdirSync, openSync, readFileSync, writeFileSync,
@@ -24,6 +28,7 @@ const now = () => Math.floor(Date.now() / 1000)
 const day = 86400
 const unlimitedExpiry = -1
 const limit = 24 * 1024 * 1024
+const sourceLimit = 4 * 1024 * 1024
 const args = process.argv.slice(2)
 const container = args[0] === '--container'
 const [action, argument] = container ? args.slice(1) : args
@@ -173,6 +178,121 @@ function validateList(list) {
     fail(400, '歌单数据格式有误')
   }
 }
+function scriptName(script, link) {
+  const header = /^\s*\/\*([\s\S]*?)\*\//.exec(script)?.[1] ?? ''
+  const name = /^[ \t]*\*?[ \t]*@name[ \t]+([^\r\n]+)/m.exec(header)?.[1]?.trim()
+  if (name) return name.slice(0, 512)
+  try {
+    const filename = new URL(link).pathname.split('/').filter(Boolean).at(-1)
+    if (filename) return decodeURIComponent(filename).replace(/\.js$/i, '').slice(0, 512) || '自定义音源'
+  } catch { /* A script without a usable name can still be uploaded. */ }
+  return '自定义音源'
+}
+
+const privateIp = new BlockList()
+for (const [prefix, bits] of [
+  ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8],
+  ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.0.2.0', 24],
+  ['192.88.99.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['198.51.100.0', 24],
+  ['203.0.113.0', 24], ['224.0.0.0', 3],
+]) privateIp.addSubnet(prefix, bits, 'ipv4')
+const globalV6 = new BlockList()
+globalV6.addSubnet('2000::', 3, 'ipv6')
+for (const [prefix, bits] of [['2001::', 23], ['2001:db8::', 32], ['2002::', 16], ['3fff::', 20]]) {
+  privateIp.addSubnet(prefix, bits, 'ipv6')
+}
+const sourceRedirects = new Set([301, 302, 303, 307, 308])
+let activeSourceDownloads = 0
+
+function sourceUrl(value, base) {
+  let url
+  try { url = new URL(value, base) }
+  catch { fail(400, '请输入有效的音源链接') }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) fail(400, '请输入公开的 HTTP 或 HTTPS 音源链接')
+  url.hash = ''
+  return url
+}
+
+async function resolveSourceHost(hostname, signal) {
+  const host = hostname.replace(/^\[|\]$/g, '')
+  const hostnameKey = host.toLowerCase().replace(/\.$/, '')
+  if (hostnameKey === 'localhost' || hostnameKey.endsWith('.localhost')) {
+    fail(400, '音源链接必须指向公网地址')
+  }
+  const family = isIP(host)
+  let candidates
+  if (family) candidates = [{ address: host, family }]
+  else {
+    let abort
+    try {
+      candidates = await Promise.race([
+        lookup(host, { all: true, order: 'ipv4first' }),
+        new Promise((_, reject) => {
+          abort = () => reject(signal.reason)
+          signal.addEventListener('abort', abort, { once: true })
+        }),
+      ])
+    } finally { if (abort) signal.removeEventListener('abort', abort) }
+  }
+  const pinned = candidates.find(({ address, family }) => family === 4
+    ? !privateIp.check(address, 'ipv4')
+    : globalV6.check(address, 'ipv6') && !privateIp.check(address, 'ipv6'))
+  if (!pinned) fail(400, '音源链接必须指向公网地址')
+  return pinned
+}
+
+async function downloadSource(value) {
+  if (typeof value !== 'string' || !value.trim() || value.length > 4096) fail(400, '请输入有效的音源链接')
+  let url = sourceUrl(value.trim())
+  if (activeSourceDownloads >= 8) fail(429, '音源下载忙，请稍后再试')
+  activeSourceDownloads++
+  const signal = AbortSignal.timeout(15000)
+  try {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      signal.throwIfAborted()
+      const pinned = await resolveSourceHost(url.hostname, signal)
+      const request = url.protocol === 'https:' ? httpsRequest : httpRequest
+      // Pin each hop to the public address already checked above.
+      const response = await new Promise((resolve, reject) => {
+        const outgoing = request(url, {
+          agent: false, autoSelectFamily: false, signal,
+          lookup: (_host, _options, callback) => callback(null, pinned.address, pinned.family),
+          headers: { 'accept-encoding': 'identity' },
+        }, resolve)
+        outgoing.on('error', reject)
+        outgoing.end()
+      })
+      try {
+        if (sourceRedirects.has(response.statusCode) && response.headers.location) {
+          url = sourceUrl(response.headers.location, url)
+          continue
+        }
+        if (response.statusCode !== 200) fail(502, '音源服务器返回 HTTP ' + response.statusCode)
+        if (response.headers['content-encoding'] && response.headers['content-encoding'] !== 'identity') {
+          fail(502, '音源服务器返回了不受支持的压缩格式')
+        }
+        if (Number(response.headers['content-length']) > sourceLimit) fail(413, '音源文件过大')
+        const parts = []
+        let total = 0
+        for await (const chunk of response) {
+          total += chunk.length
+          if (total > sourceLimit) fail(413, '音源文件过大')
+          parts.push(chunk)
+        }
+        const script = Buffer.concat(parts).toString('utf8').trim()
+        if (!script) fail(400, '链接返回了空文件')
+        try { new Script(script) }
+        catch { fail(400, '链接未返回有效的 JS 脚本') }
+        return script
+      } finally { response.destroy() }
+    }
+    fail(502, '音源链接重定向次数过多')
+  } catch (error) {
+    if (error.status) throw error
+    fail(502, signal.aborted ? '下载音源超时' : '无法下载音源，请检查链接')
+  } finally { activeSourceDownloads-- }
+}
+
 function validate(kind, data) {
   if (kind === 'lists') {
     if (!object(data) || data.defaultList?.id !== 'default' || data.loveList?.id !== 'love' ||
@@ -190,15 +310,15 @@ function validate(kind, data) {
   if (!Array.isArray(data) || data.length > 100) fail(400, '音源列表格式有误')
   const seen = new Set()
   return data.map((row) => {
-    if (!object(row) || typeof row.name !== 'string' || row.name.length > 512 ||
-        typeof row.script !== 'string' || !row.script.trim() || Buffer.byteLength(row.script) > 4 * 1024 * 1024 ||
+    if (!object(row) || (row.name != null && (typeof row.name !== 'string' || row.name.length > 512)) ||
+        typeof row.script !== 'string' || !row.script.trim() || Buffer.byteLength(row.script) > sourceLimit ||
         typeof row.enabled !== 'boolean' || (row.url != null && (typeof row.url !== 'string' ||
         row.url.length > 4096 || (row.url && !/^https?:\/\//i.test(row.url))))) fail(400, '音源内容或更新链接格式有误')
     const script = row.script.trim()
     const digest = hash(script)
     if (seen.has(digest)) fail(400, '列表中已有相同音源')
     seen.add(digest)
-    return { name: row.name, script, url: row.url || '', enabled: row.enabled, digest }
+    return { name: row.name?.trim() || scriptName(script, row.url), script, url: row.url || '', enabled: row.enabled, digest }
   })
 }
 function library(uid, kind) {
@@ -435,6 +555,12 @@ async function webAccount(req, res, path, method, adminPortal) {
   if (method !== 'POST') fail(404, '接口不存在')
   const body = await payload(req, 8192)
   switch (path) {
+    case '/source-download': {
+      throttle(req, 'source-download', 20, 60)
+      const script = await downloadSource(body.url)
+      authenticate(req, false)
+      return json(res, { script })
+    }
     case '/logout':
       sql('DELETE FROM sessions WHERE token=?').run(hash(browserToken(req)))
       return json(res, {}, 200, { 'set-cookie': sessionCookie('', 0) })

@@ -315,16 +315,21 @@ async function sources() {
   heading.append(element('h2', '已保存的音源'), add)
   panel.append(heading, form)
 
-  field(form, '名称', 'name').required = true
-  field(form, '更新链接（可选）', 'url', 'url')
+  const nameInput = field(form, '名称（可选）', 'name')
+  nameInput.placeholder = '留空时读取脚本名称'
+  nameInput.maxLength = 512
+  field(form, '更新链接', 'url', 'url')
   const script = field(form, '上传 JS 文件', 'script', 'file')
   script.accept = '.js'
-  script.required = true
   script.parentElement.className = 'source-full'
+  form.append(element('p', '填写更新链接或上传 JS 文件，两者都填时使用上传的文件。', 'dim source-full source-hint'))
   async function save(next) { await put('sources', state.revision, next); await load() }
   submit(form, '保存新音源', async ({ name, url, script: file }) => {
+    const link = url.trim()
+    if (!link && !file.name) throw Error('请填写更新链接或上传 JS 文件')
     if (file.size > 4 * 1024 * 1024) throw Error('音源文件过大')
-    await save([...data, { name, url, script: await file.text(), enabled: true }])
+    const script = file.name ? await file.text() : (await api('source-download', 'POST', { url: link })).script
+    await save([...data, { name, url: link, script, enabled: true }])
   }).className = 'source-primary'
 
   if (!data.length) {
