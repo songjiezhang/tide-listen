@@ -60,8 +60,8 @@ jobs:
           test "$result" = 401
           SYNC_ADMIN_PASSWORD= docker compose up -d --no-build --wait
           login | jq -e '.account == "compose-admin"'
-          docker compose exec -T --user node sync node /app/server.mjs backup /data/ci.sqlite
-          docker compose cp sync:/data/ci.sqlite /tmp/tide-sync-ci.sqlite
+          docker compose exec -T --user node tide-sync node /app/server.mjs backup /data/ci.sqlite
+          docker compose cp tide-sync:/data/ci.sqlite /tmp/tide-sync-ci.sqlite
           test -s /tmp/tide-sync-ci.sqlite
       - name: Verify standalone docker run
         run: |
@@ -75,7 +75,7 @@ jobs:
           curl -fsS http://127.0.0.1:8473/admin/api/login \
             -H 'Origin: https://direct.example.com' -H 'Content-Type: application/json' \
             --data '{"name":"run-admin","password":"direct-qa-password-2026"}' | jq -e '.account == "run-admin"'
-      - run: docker run --rm --user node --volume "${PWD}:/suite:ro" --entrypoint node "$(docker compose images -q sync)" /suite/test.mjs
+      - run: docker run --rm --user node --volume "${PWD}:/suite:ro" --entrypoint node "$(docker compose images -q tide-sync)" /suite/test.mjs
       - name: Test upgrade with root-owned bind mounts
         run: bash tests/container-upgrade.sh
       - name: Save verified image

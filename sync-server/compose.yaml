@@ -1,13 +1,14 @@
 services:
-  sync:
-    image: zjuzsj/tide-listen-server:2026.11.0002
+  tide-sync:
+    container_name: tide-listen-server
+    image: zjuzsj/tide-listen-server:latest
     environment:
       SYNC_PUBLIC_URL: "https://${SYNC_DOMAIN:?请设置 SYNC_DOMAIN}"
       SYNC_TRUST_PROXY: "1"
       SYNC_ADMIN_USERNAME: "${SYNC_ADMIN_USERNAME:-admin}"
       SYNC_ADMIN_PASSWORD: "${SYNC_ADMIN_PASSWORD:-}"
     ports:
-      - "127.0.0.1:${SYNC_LOCAL_PORT:-8472}:8472"
+      - "${SYNC_LOCAL_PORT:-8472}:8472"
     volumes:
       - data:/data
       - secrets:/secrets

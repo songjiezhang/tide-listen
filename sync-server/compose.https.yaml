@@ -11,7 +11,7 @@ services:
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
-      sync:
+      tide-sync:
         condition: service_healthy
     restart: unless-stopped
 volumes:

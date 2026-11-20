@@ -4,44 +4,75 @@
 
 ## Docker 部署
 
-同步服务的 Docker Hub 镜像是 `zjuzsj/tide-listen-server:2026.11.0002`，覆盖 Linux amd64 和 arm64。桌面、Android 手机和车机从 v0.13.4 起根据版本变更同步。已配对的 v0.13.0 客户端可以继续连接。[Docker Hub 仓库](https://hub.docker.com/r/zjuzsj/tide-listen-server)
+同步服务的 Docker Hub 镜像是 `zjuzsj/tide-listen-server:latest`，覆盖 Linux amd64 和 arm64。从 v0.13.4 起，客户端会在服务端歌单或已启用同步的音源发生变更后拉取相应数据。已配对的 v0.13.0 客户端可以继续连接。[Docker Hub 仓库](https://hub.docker.com/r/zjuzsj/tide-listen-server)
+
+首次部署可以直接复制下方模板。更新已有实例请跳到[检查部署和升级](#检查部署和升级)。
 
 服务端镜像标签采用 `YYYY.MM.NNNN`，其中 `NNNN` 是从 `0001` 起算的当月发布序号。`latest` 指向最新发布的服务端镜像。
 
-### 配置 .env
+### 用 Docker Compose 启动
 
-在部署目录准备 `.env`，也可以直接下载 [示例文件](https://raw.githubusercontent.com/songjiezhang/tide-listen/main/sync-server/.env.example) 后改名。在启动前填写自己的初始管理员密码。
+首次部署时，在装有 Docker Compose 的 NAS 或 VPS 上新建一个目录，把下面两段配置分别保存为 `compose.yaml` 和 `.env`。启动时会从 Docker Hub 拉取镜像。
+
+**`compose.yaml`**
+
+```yaml
+services:
+  tide-sync:
+    container_name: tide-listen-server
+    image: zjuzsj/tide-listen-server:latest
+    environment:
+      SYNC_PUBLIC_URL: "https://${SYNC_DOMAIN:?请设置 SYNC_DOMAIN}"
+      SYNC_TRUST_PROXY: "1"
+      SYNC_ADMIN_USERNAME: "${SYNC_ADMIN_USERNAME:-admin}"
+      SYNC_ADMIN_PASSWORD: "${SYNC_ADMIN_PASSWORD:-}"
+    ports:
+      - "${SYNC_LOCAL_PORT:-8472}:8472"
+    volumes:
+      - data:/data
+      - secrets:/secrets
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8472/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 4s
+      retries: 3
+volumes:
+  data:
+  secrets:
+```
+
+**`.env`**
 
 ```dotenv
 SYNC_DOMAIN=sync.example.com
-SYNC_LOCAL_PORT=18472
+SYNC_LOCAL_PORT=8472
 SYNC_ADMIN_USERNAME=admin
 SYNC_ADMIN_PASSWORD=
 ```
 
-- `SYNC_DOMAIN` 填浏览器访问的域名。服务会用对应的 HTTPS 地址校验 `/admin` 请求来源，证书和 HTTPS 由现有反向代理处理。
-- `SYNC_LOCAL_PORT` 是 Compose 使用的宿主机端口，默认 `8472`。本例将 `127.0.0.1:18472` 映射到容器的 `8472`。同一宿主机上的反向代理目标填 `http://127.0.0.1:18472`。
-- 管理员账号和密码只在首次启动时使用。密码长度为 12 至 128 个字符。以后在 `/admin` 修改密码。已有实例升级时沿用原数据卷和密钥卷。初始化成功后可清空 `.env` 中的初始密码，再重新创建容器。
+首次启动前，填写以下两项配置。
 
-### 用 Docker Compose 启动
+- `SYNC_DOMAIN` 填对外访问的域名，例如 `sync.example.com`，省略协议和路径。服务用它识别网页登录地址，HTTPS 由反向代理提供。
+- `SYNC_ADMIN_PASSWORD` 填 12 至 128 个字符的初始密码。初始管理员默认为 `admin`，可以通过 `SYNC_ADMIN_USERNAME` 修改。已有数据库继续使用原来的账号和密码。
 
-部署预构建镜像只需要 Compose 文件和环境变量。首次部署可在一个空目录下载两个文件，再编辑 `.env`：
+默认在宿主机的所有网络接口上发布 HTTP 端口 `8472`。公网访问走 HTTPS 反向代理，宿主机端口只需对代理开放。如果端口已被占用，修改 `SYNC_LOCAL_PORT` 即可。
+
+在这两个文件所在的目录运行：
 
 ```bash
-curl -fLO https://raw.githubusercontent.com/songjiezhang/tide-listen/v0.13.8/sync-server/compose.yaml
-curl -fL https://raw.githubusercontent.com/songjiezhang/tide-listen/v0.13.8/sync-server/.env.example -o .env
 chmod 600 .env
-```
-
-把 [compose.yaml](https://raw.githubusercontent.com/songjiezhang/tide-listen/main/sync-server/compose.yaml) 和 `.env` 放在同一个目录，执行：
-
-```bash
 docker compose up -d
 ```
 
-Compose 会拉取镜像，并在首次启动时创建管理员。群晖 Container Manager 可使用同一份 `compose.yaml`。从旧 Compose 部署升级时，在原目录替换 Compose 配置，并保留原来的项目名与卷。
+将域名解析到反向代理。代理运行在宿主机上时，将该域名的 HTTPS 请求转发到 `http://127.0.0.1:8472`。如果改过 `SYNC_LOCAL_PORT`，转发目标也要使用新端口。确认 HTTPS 可访问后，按[网页与设备](#网页与设备)中的步骤登录和配对。
 
-VPS 也可使用 [Caddy 配置文件](https://raw.githubusercontent.com/songjiezhang/tide-listen/main/sync-server/Caddyfile) 和 [Compose HTTPS 配置](https://raw.githubusercontent.com/songjiezhang/tide-listen/main/sync-server/compose.https.yaml)。待域名解析生效且公网 80、443 端口可达后启动。Caddy 在 Docker 网络里直接转发到 `sync:8472`。
+如需单独获取配置文件，可使用 [compose.yaml](compose.yaml) 和 [.env.example](.env.example)。初始化后可在管理页修改密码，再清空 `.env` 中的初始密码并重新创建容器。
+
+### 使用随附的 Caddy
+
+如果希望由 Caddy 提供 HTTPS，将 [Caddyfile](Caddyfile) 和 [compose.https.yaml](compose.https.yaml) 保存到 `compose.yaml` 所在目录。将域名解析到 VPS，确保公网可访问 80 和 443 端口，使用下面的启动命令。Caddy 通过 Compose 网络转发到 `tide-sync:8472`。
 
 ```bash
 docker compose -f compose.yaml -f compose.https.yaml up -d
@@ -49,28 +80,18 @@ docker compose -f compose.yaml -f compose.https.yaml up -d
 
 ### 用 docker run 启动
 
-用同样的 `.env` 变量。其中 `--env-file` 的值直接写在等号后，端口改在 `-p` 里填写。下面以宿主机端口 `18472` 为例。
+单独用 Docker 启动时，用 `--env-file` 读取上面的域名和管理员凭据，文件中各变量的值直接写在等号后。宿主机端口由 `-p` 左侧的数字决定，下面使用 `8472`。
 
 ```bash
-docker run -d --name tidelisten-sync --restart unless-stopped \
-  --env-file .env -p 127.0.0.1:18472:8472 \
+docker run -d --name tide-listen-server --restart unless-stopped \
+  --env-file .env -p 8472:8472 \
   -e SYNC_TRUST_PROXY=1 \
   -v tidelisten-sync-data:/data \
   -v tidelisten-sync-secrets:/secrets \
-  zjuzsj/tide-listen-server:2026.11.0002
+  zjuzsj/tide-listen-server:latest
 ```
 
 从已有部署切换启动方式时，把示例卷名换成原来的数据库卷和密钥卷。启动后访问 `https://sync.example.com/admin`，App 配对填写 `https://sync.example.com`。
-
-### 检查部署和升级
-
-```bash
-docker compose ps
-docker compose logs --tail=50 sync
-curl -fsS http://127.0.0.1:18472/health
-```
-
-上例使用 `.env` 示例中的宿主机端口。反代需要允许至少 20 秒的空闲等待，以便客户端接收变更通知。升级时在原项目目录将镜像标签改为目标服务端版本，执行 `docker compose pull sync` 和 `docker compose up -d`。保留两处挂载和 Compose 项目名。普通用户访问 `/login`，管理员访问 `/admin`。
 
 ### 通过 Dockerfile 自行构建
 
@@ -80,9 +101,30 @@ curl -fsS http://127.0.0.1:18472/health
 docker compose -f compose.yaml -f compose.build.yaml up -d --build
 ```
 
+### 检查部署和升级
+
+在 Compose 部署目录执行以下命令。健康检查正常时会返回 `{"status":"ok"}`。如果更改了宿主机端口，请同时替换命令中的 `8472`。反向代理的读取超时应长于 20 秒，以便客户端等待变更通知。
+
+```bash
+docker compose ps
+docker compose logs --tail=50 tide-sync
+curl -fsS http://127.0.0.1:8472/health
+```
+
+**升级已有实例**时，在原项目目录保留原来的 Compose 项目名、`.env`、数据库和密钥挂载。如果原配置里的服务名是 `sync`，请先用**旧配置**运行 `docker compose rm --stop --force sync`，移除旧容器并保留数据卷，再换用新模板。使用随附 Caddy 的实例将这一步改为 `docker compose -f compose.yaml -f compose.https.yaml rm --stop --force caddy sync`，然后一并更新 `compose.https.yaml` 和 `Caddyfile`。
+
+使用默认的 `latest` 镜像时，执行：
+
+```bash
+docker compose pull tide-sync
+docker compose up -d
+```
+
+使用随附的 Caddy 时，第二条命令换成上面的 [Caddy 启动命令](#使用随附的-caddy)，继续使用两份 Compose 文件。
+
 ### 已有绑定挂载
 
-如果你的 VPS 使用下面的绑定挂载，请在**原来放置 `compose.yaml` 的目录**操作并保留这两条挂载。
+快速部署模板使用 Docker 命名卷。如果原配置使用宿主机目录，请保留原来的两行映射。例如：
 
 ```yaml
     volumes:
@@ -90,35 +132,44 @@ docker compose -f compose.yaml -f compose.build.yaml up -d --build
       - ./secrets:/secrets
 ```
 
-只将镜像改为 `zjuzsj/tide-listen-server:2026.11.0002`，再执行：
-
-```bash
-docker compose up -d
-```
-
-镜像启动时会修正默认 `/data` 和 `/secrets` 的权限，以及数据库、SQLite 辅助文件和 `sources.key` 的归属。随后服务降权到 `1000:1000`，继续使用原数据库、密钥和管理员账号。挂载须允许写入。显式指定非 root 的 `user:` 时，由部署者管理挂载权限。
+左侧是原数据所在的宿主机目录，右侧是容器内路径。镜像启动时会修正默认挂载位置的目录、数据库及其辅助文件、`sources.key` 的权限，然后以 `1000:1000` 运行服务。目录须可写。显式指定非 root 的 `user:` 时，需要由部署者管理挂载权限。
 
 ## 网页与设备
 
-1. 服务根地址会跳转到普通账号登录页 `https://sync.example.com/login`。管理员使用初始化的账号和密码在 `https://sync.example.com/admin` 登录。
-2. 在「账号设置」创建用户，在「配对与设备」为该用户生成配对码。默认有效期为 10 分钟。生成时可选择分钟、小时、天、月、年或长期有效，管理员也可修改全局默认值。管理员也可在「账号设置」的用户旁点击「生成配对码」。有效码在「配对与设备」页的「待使用的配对码」中显示，切回该页或刷新后仍可复制。同步服务 0.13.4 之前签发的配对码可继续使用，网页只显示其账号和有效期。选择长期有效的配对码在使用或作废前一直有效，每个码只可配对一次。
-3. 桌面打开「设置 → 数据同步」，手机和车机打开「设置 → 同步」。在「汐听同步服务」填写 `https://sync.example.com` 和配对码。每台设备使用新生成的配对码。配对后可在网页撤销设备。
-4. 桌面可合并现有本机歌单，或选择「从 WebDAV 迁移」。迁移先同步配置中的 WebDAV 歌单，再预览列表和曲目数量。确认后客户端写本机 JSON 备份，将歌单合并到配对用户的库，并切换到新同步方式。等待其他已连接 WebDAV 的设备上传未同步的改动，再配对至新服务。
-5. 汐听客户端在歌单或已启用同步的音源发生改动时上传。桌面和处于前台的 Android 客户端等待服务端版本变化，再下载对应的数据。离线修改会保留并于下次联机上传。桌面和移动端都可手动同步。
-6. 音源同步默认关闭。开启后，如果服务器音源库为空，客户端会上传本机洛雪 JS 音源。如果服务器已有变更，客户端会提示审核；确认后用服务器列表更新本机。网页「音源」页显示优先级与启停状态，可直接上移或下移。点击「添加音源」可填写公网更新链接或上传 JS 文件。名称留空时读取脚本自带的名称。点击「编辑」更换文件、修改更新链接或调整启停状态。桌面端通过已启用的 LX API Source Loader 扩展使用洛雪音源。手机或车机的音源设置可回到「音源」编辑并同步。
+以下用 `https://sync.example.com` 表示你的服务根地址。
 
-同步服务管理歌单记录和选中的音源。音频和播放进度保存在原设备。
+1. **创建账号。** 管理员访问 `/admin`，在「账号设置」创建普通用户。普通用户访问 `/login`，也可以从服务根地址进入。
+2. **为设备生成配对码。** 在「配对与设备」选择有效期，点击「生成配对码」，从「待使用的配对码」复制。管理员可以在「为账号生成配对码」中选用户，也可以从「账号设置」里该用户旁的按钮进入。想让多台设备共享歌单，请为**同一个账号**生成配对码，每台设备用一个。
+3. **在客户端配对。** 桌面打开「设置 → 数据同步 → 汐听同步服务」，手机和车机打开「设置 → 同步 → 汐听同步服务」。填写服务根地址和配对码。桌面配对后，若要同步本机歌单，选择「合并本机歌单并开启同步」。已有 WebDAV 歌单的用户请按下节步骤迁移。
+
+配对码默认 10 分钟有效。可按分钟、小时、天、月或年设置，也可选「长期有效」。每个码只能用一次。刷新页面后，仍可复制尚未使用且未过期的配对码。旧版服务（0.13.4 以前）签发的有效码仍可使用，页面仅显示对应的账号和有效期。管理员可以在「账号设置」更改默认有效期，在「配对与设备」撤销已配对的设备。
+
+### 从 WebDAV 迁移歌单
+
+1. 先让所有仍在使用 WebDAV 的设备同步一次，确保各端的改动都已上传。保留桌面端原有的 WebDAV 地址，开启 WebDAV 歌单同步。
+2. 在桌面端配对汐听同步服务后，选择「从 WebDAV 迁移」。桌面端先同步 WebDAV，再显示歌单名称和曲数。
+3. 核对预览后点击「备份并迁移」。桌面端会保存本机 JSON 备份，把歌单与配对账号的歌单合并，并切换到汐听同步服务。完成后，为其余设备分别生成配对码，接入同一账号。
+
+### 自动同步与音源
+
+歌单发生改动时，客户端会自动上传。桌面端和处于前台的 Android 客户端会接收其他设备的变更。离线修改在恢复连接后上传，也可点击「立即同步」。音频和播放进度保存在原设备。
+
+「同步音源」默认关闭。开启后，如果服务器尚未保存过音源，客户端会上传本机音源。如果服务器已有不同的音源配置，先在设备上审核，确认后用服务器列表更新本机。桌面端需启用 LX API Source Loader 扩展。
+
+网页「音源」可调整优先级和启停状态。「添加音源」时可填写公网更新链接，也可上传 JS 文件。名称留空会使用脚本自带的名称。「编辑」可更换文件或修改更新链接。
 
 ## 备份与复原
 
-网页「备份与恢复」可下载或恢复当前账号的歌单 JSON，文件也可导入桌面端。首次迁移或准备覆盖前，可以先下载一份。
+只需备份歌单时，在网页「备份与恢复」下载当前账号的歌单 JSON，也可将它导入桌面端。网页恢复会替换该账号的歌单，并同步到已配对的设备。
 
-需要迁移整个同步服务时，运行以下命令使用 SQLite 在线备份：
+迁移整台服务时，需要同时备份 SQLite 数据库和音源密钥。在部署目录执行以下命令，每次会创建独立的备份目录：
 
 ```bash
-docker compose exec --user node sync node /app/server.mjs backup /data/backup.sqlite
-docker compose cp sync:/data/backup.sqlite ./backup.sqlite
-docker compose cp sync:/secrets/sources.key ./sources.key
+backup_dir=$(mktemp -d tide-backup-XXXXXXXX) &&
+  docker compose exec -T --user node tide-sync node /app/server.mjs backup "/tmp/$backup_dir.sqlite" &&
+  docker compose cp "tide-sync:/tmp/$backup_dir.sqlite" "$backup_dir/sync.sqlite" &&
+  docker compose cp tide-sync:/secrets/sources.key "$backup_dir/sources.key" &&
+  docker compose exec -T --user node tide-sync rm "/tmp/$backup_dir.sqlite"
 ```
 
-分别保管数据库和密钥。密钥可解密数据库里的音源脚本和更新链接。还原时先停止服务，恢复两个数据卷内的数据库和密钥，移除旧数据库对应的 `sync.sqlite-wal`、`sync.sqlite-shm`，再启动。确认恢复的是同一套数据库和密钥。
+恢复前先停止服务。将同一备份目录里的 `sync.sqlite` 和 `sources.key` 分别恢复到容器对应的 `/data/sync.sqlite` 和 `/secrets/sources.key`。若目标目录有旧数据库的 `sync.sqlite-wal` 或 `sync.sqlite-shm`，先移走再启动。备份中的密钥能解密音源脚本和更新链接，请妥善保管。

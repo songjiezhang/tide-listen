@@ -23,7 +23,7 @@ Android 最低支持 6.0。车机需要支持直接安装 APK。从 0.12.0 或�
 - 桌面端使用 Midnight 圆角主题，支持按链接更新已导入的洛雪 JS 音源，按启用音源的优先级依次解析。桌面在线歌单和歌词通过扩展管理器获得。
 - 手机和车机在「设置 → 音源」调整优先级。播放时依次尝试支持歌曲平台和所选音质的已启用音源，第一个可播放的音源成功后即停止。首选音质没有可用结果时，再尝试更低音质。「音源默认」直接使用每个音源的默认音质。
 - Android 首页内置 Online Metadata v0.4.9 的歌单和排行榜模块，可浏览酷狗、酷我、网易、企鹅和咪咕的公开歌单。首页先显示缓存，再后台刷新。播放页使用同一扩展获取同步歌词。
-- 在 Android 设置中填写桌面端使用的 WebDAV 同步目录，即可按原名称查看「我的列表」。添加、收藏、编辑与排序会自动同步。播放网络歌曲所需的 JS 音源由使用者自行从有权使用的来源导入。
+- 选择 WebDAV 同步时，在 Android 设置中填写与桌面端相同的同步目录，即可按原名称查看「我的列表」。添加、收藏、编辑与排序会自动同步。播放网络歌曲所需的 JS 音源由使用者自行从有权使用的来源导入。
 - 手机重新打开后恢复上次曲目、队列和进度。车机默认打开后继续播放，横屏左侧为封面和控制，右侧为滚动歌词。
 
 ### 编辑、更新与排序
@@ -36,7 +36,69 @@ Android 最低支持 6.0。车机需要支持直接安装 APK。从 0.12.0 或�
 
 ## 自托管同步
 
-汐听同步服务支持通过 Docker 部署到 NAS 或 VPS。使用网页管理账号、设备和一次性配对码。桌面、手机和车机通过服务地址配对，同步歌单，也可以开启洛雪 JS 音源同步。桌面端可以将 WebDAV 歌单迁移到新服务。详见 [同步服务部署与迁移](sync-server/README.md)。
+桌面、手机和车机可以通过同步服务共享歌单，并按需同步音源。已有服务可以直接[配对设备](sync-server/README.md#网页与设备)。已有实例更新镜像时，请按[升级说明](sync-server/README.md#检查部署和升级)保留原来的数据卷和密钥卷。
+
+### Docker Compose 快速部署
+
+首次部署时，在装有 Docker Compose 的 NAS 或 VPS 上新建一个目录，把下面两段配置分别保存为 `compose.yaml` 和 `.env`。启动时会从 Docker Hub 拉取镜像。
+
+**`compose.yaml`**
+
+```yaml
+services:
+  tide-sync:
+    container_name: tide-listen-server
+    image: zjuzsj/tide-listen-server:latest
+    environment:
+      SYNC_PUBLIC_URL: "https://${SYNC_DOMAIN:?请设置 SYNC_DOMAIN}"
+      SYNC_TRUST_PROXY: "1"
+      SYNC_ADMIN_USERNAME: "${SYNC_ADMIN_USERNAME:-admin}"
+      SYNC_ADMIN_PASSWORD: "${SYNC_ADMIN_PASSWORD:-}"
+    ports:
+      - "${SYNC_LOCAL_PORT:-8472}:8472"
+    volumes:
+      - data:/data
+      - secrets:/secrets
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8472/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 4s
+      retries: 3
+volumes:
+  data:
+  secrets:
+```
+
+**`.env`**
+
+```dotenv
+SYNC_DOMAIN=sync.example.com
+SYNC_LOCAL_PORT=8472
+SYNC_ADMIN_USERNAME=admin
+SYNC_ADMIN_PASSWORD=
+```
+
+首次启动前，填写以下两项配置。
+
+- `SYNC_DOMAIN` 填对外访问的域名，例如 `sync.example.com`，省略协议和路径。服务用它识别网页登录地址，HTTPS 由反向代理提供。
+- `SYNC_ADMIN_PASSWORD` 填 12 至 128 个字符的初始密码。初始管理员默认为 `admin`，可以通过 `SYNC_ADMIN_USERNAME` 修改。已有数据库继续使用原来的账号和密码。
+
+默认在宿主机的所有网络接口上发布 HTTP 端口 `8472`。公网访问走 HTTPS 反向代理，宿主机端口只需对代理开放。如果端口已被占用，修改 `SYNC_LOCAL_PORT` 即可。
+
+在这两个文件所在的目录运行：
+
+```bash
+chmod 600 .env
+docker compose up -d
+```
+
+将域名解析到反向代理。代理运行在宿主机上时，将该域名的 HTTPS 请求转发到 `http://127.0.0.1:8472`。如果改过 `SYNC_LOCAL_PORT`，转发目标也要使用新端口。
+
+以 `sync.example.com` 为例，管理员登录 `https://sync.example.com/admin` 创建用户，为同一用户的每台设备各生成一个配对码。客户端填写服务根地址 `https://sync.example.com` 和本机的配对码。桌面端配对后再选择「合并本机歌单并开启同步」或「从 WebDAV 迁移」。
+
+使用容器内的反向代理或迁移现有歌单时，参见 [Caddy 部署](sync-server/README.md#使用随附的-caddy)和 [WebDAV 歌单迁移](sync-server/README.md#从-webdav-迁移歌单)。
 
 ## 界面预览
 
