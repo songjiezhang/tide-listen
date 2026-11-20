@@ -4,7 +4,7 @@
 
 基于 [Any Listen](https://github.com/any-listen/any-listen) 的个人非商业改版，由 songjiezhang 维护。默认主题为 Midnight。Windows 桌面端沿用上游的播放器和扩展机制。Android 手机和横屏车机使用独立的 Media3 客户端，三端通过汐听同步服务或 WebDAV 共享歌单与排列顺序。
 
-项目是Codex Astra的个人Vibe Coding产物,未经广泛测试,不提供技术支持,敬请谅解。
+**本项目是Codex的个人Vibe Coding产物，未经广泛测试，不提供技术支持，敬请谅解。**
 
 ## 下载安装
 
