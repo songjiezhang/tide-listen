@@ -170,7 +170,7 @@ try {
   assert.equal((await request('/admin/api/lists', { cookie: owner })).data.data, null)
   const forbidden = [
     'file:///script.js', 'http://localhost/source.js', 'http://127.0.0.1/source.js',
-    'http://[::1]/source.js', 'http://169.254.1.10/source.js',
+    'http://[::1]/source.js', 'http://169.254.1.10/source.js', 'http://168.63.129.16/source.js',
   ]
   await post('/login/api/source-download', { url: forbidden[0] }, { status: 401 })
   await post('/login/api/source-download', { url: forbidden[0] }, { cookie: user, origin: 'https://invalid.example', status: 403 })
