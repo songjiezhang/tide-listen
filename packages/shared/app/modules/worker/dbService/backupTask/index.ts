@@ -20,17 +20,17 @@ import {
 import type { BackupTrigger } from './types'
 
 let currentBackupTask: Promise<boolean> | null = null
-let isInited = false
+let backupController: AbortController | undefined
 
-const backup = async (db: Database.Database, trigger: BackupTrigger): Promise<boolean> => {
-  if (currentBackupTask) return false
+const backup = async (db: Database.Database, trigger: BackupTrigger, signal: AbortSignal): Promise<boolean> => {
+  if (signal.aborted || currentBackupTask) return false
 
   const backupType = resolveBackupType(trigger)
   const isDailyBackup = backupType == 'daily'
 
   const task = (async () => {
     const info = await resolveBackupPathInfo(db, backupType)
-    if (!info) return false
+    if (!info || signal.aborted) return false
     const tempPath = createTempBackupPath(info.filePath)
 
     try {
@@ -38,10 +38,13 @@ const backup = async (db: Database.Database, trigger: BackupTrigger): Promise<bo
       const files = await listBackupFiles(info.dir, info.prefix)
       const latestFile = files[0] ? path.join(info.dir, files[0]) : null
 
+      if (signal.aborted) return false
       await db.backup(tempPath)
+      if (signal.aborted) return false
 
       if (latestFile) {
         const [latestHash, tempHash] = await Promise.all([hashFileSha256(latestFile), hashFileSha256(tempPath)])
+        if (signal.aborted) return false
         if (latestHash == tempHash) {
           await removeFileIfExists(tempPath)
           if (isDailyBackup) saveMetadataLastBackupTime(Date.now())
@@ -50,6 +53,7 @@ const backup = async (db: Database.Database, trigger: BackupTrigger): Promise<bo
       }
 
       const backupPath = await ensureUniqueBackupPath(info.filePath, formatBackupTimestamp(Date.now()))
+      if (signal.aborted) return false
       await moveFile(tempPath, backupPath)
       if (isDailyBackup) {
         await pruneDailyBackups(info.dir, info.prefix)
@@ -63,34 +67,28 @@ const backup = async (db: Database.Database, trigger: BackupTrigger): Promise<bo
       return false
     } finally {
       await removeFileIfExists(tempPath)
-      currentBackupTask = null
     }
   })()
 
   currentBackupTask = task
-  return task
+  try {
+    return await task
+  } finally {
+    currentBackupTask = null
+  }
 }
 
 export const breakChangeBackup = async (db: Database.Database) => {
+  const signal = backupController?.signal
+  if (!signal || signal.aborted) return
   if (currentBackupTask) {
     await currentBackupTask
     return
   }
-  await backup(db, 'event')
+  await backup(db, 'event', signal)
 }
 
-const runBackupTask = async (db: Database.Database) => {
-  const lastBackupTime = queryMetadataLastBackupTime()
-  if (!isSameDay(lastBackupTime, Date.now())) {
-    await backup(db, 'init')
-  }
-
-  scheduleDailyBackup(async () => {
-    await backup(db, 'interval')
-  })
-}
-
-const setupEventBackupTrigger = (db: Database.Database) => {
+const setupEventBackupTrigger = (db: Database.Database, signal: AbortSignal) => {
   let timer: NodeJS.Timeout | null = null
   let lastRunTime = 0
 
@@ -104,25 +102,47 @@ const setupEventBackupTrigger = (db: Database.Database) => {
       timer = setTimeout(() => {
         timer = null
         lastRunTime = performance.now()
-        void backup(db, 'event')
+        void backup(db, 'event', signal)
       }, restTime)
       return
     }
 
     lastRunTime = now
-    void backup(db, 'event')
+    void backup(db, 'event', signal)
   }
 
-  requestBackupEvent.on(runBackup)
+  const unsubscribe = requestBackupEvent.on(runBackup)
+  signal.addEventListener(
+    'abort',
+    () => {
+      unsubscribe()
+      if (timer) clearTimeout(timer)
+    },
+    { once: true }
+  )
 }
 
-export const initBackupTask = async (db: Database.Database) => {
-  if (isInited) return
-  isInited = true
+export const setBackupEnabled = async (db: Database.Database, enabled: boolean) => {
+  if (!enabled) {
+    backupController?.abort()
+    backupController = undefined
+    return
+  }
+  if (backupController) return
 
-  setupEventBackupTrigger(db)
-  await runBackupTask(db)
+  backupController = new AbortController()
+  const { signal } = backupController
+  if (currentBackupTask) await currentBackupTask
+  if (signal.aborted) return
+
+  setupEventBackupTrigger(db, signal)
+  if (!isSameDay(queryMetadataLastBackupTime(), Date.now())) {
+    await backup(db, 'init', signal)
+  }
+  if (signal.aborted) return
+  scheduleDailyBackup(async () => {
+    await backup(db, 'interval', signal)
+  }, signal)
 }
 
-// export const setBackupPath = (backupPath: string) => {}
 export { initBackupPath, setBackupPath } from './naming'

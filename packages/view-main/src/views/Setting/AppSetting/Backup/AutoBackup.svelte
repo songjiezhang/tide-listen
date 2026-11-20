@@ -2,8 +2,12 @@
   import { i18n, t } from '@/plugins/i18n'
   import TitleContent from '../../components/TitleContent.svelte'
   import Btn from '@/components/base/Btn.svelte'
+  import Checkbox from '@/components/base/Checkbox.svelte'
   import { setBackupPath, openDirInExplorer, showOpenDialog } from '@/shared/ipc/app'
   import { useSettingValue } from '@/modules/setting/reactive.svelte'
+  import { updateSetting } from '@/modules/setting/store/action'
+
+  const backupEnabled = useSettingValue('backup.enable')
   const backupPath = useSettingValue('backup.backupPath')
 
   const handleSelectBackupPath = async () => {
@@ -24,6 +28,12 @@
 <TitleContent name={$t('settings.backup.auto_backup_title')} desc={$t('settings.backup.auto_backup_desc')}>
   <div class="settings-item-content">
     {#if import.meta.env.VITE_IS_DESKTOP}
+      <Checkbox
+        id="settings.backup.auto_backup.enable"
+        label={$t('settings.backup.auto_backup.enable')}
+        checked={backupEnabled.val}
+        onchange={(enabled) => void updateSetting({ 'backup.enable': enabled })}
+      />
       {#if backupPath.val}
         <p class="auto-hidden">
           {$t('settings.backup.auto_backup.backup_path_label')}

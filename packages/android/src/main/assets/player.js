@@ -283,7 +283,7 @@ function settings() {
     esc(data.tide?.account ? data.tide.account + ' · ' + syncTime : '使用服务器地址和一次性配对码') +
     '</small></div>' + (data.tide?.account ? button('tideDisconnect', '断开') : button('tidePair', '配对')) + '</div>' +
     (data.tide?.account
-      ? '<div class="setting"><div><strong>同步洛雪 JS 音源</strong><small>' +
+      ? '<div class="setting"><div><strong>同步音源</strong><small>' +
         (data.tide.sources ? '已开启' : '默认关闭') + '</small></div>' +
         button('tideSources:' + String(!data.tide.sources), data.tide.sources ? '关闭' : '开启') + '</div>' +
         (data.tide.hasReview ? button('tideApprove', '审核服务器音源') : '')

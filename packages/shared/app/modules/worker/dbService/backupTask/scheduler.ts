@@ -8,13 +8,16 @@ const getNextBackupDelay = () => {
   return next.getTime() - now.getTime()
 }
 
-export const scheduleDailyBackup = (run: () => Promise<void>) => {
-  const delay = getNextBackupDelay()
-  setTimeout(() => {
-    void run().finally(() => {
-      scheduleDailyBackup(run)
-    })
-  }, delay)
+export const scheduleDailyBackup = (run: () => Promise<void>, signal: AbortSignal) => {
+  let timer: NodeJS.Timeout
+  const schedule = () => {
+    if (signal.aborted) return
+    timer = setTimeout(() => {
+      void run().finally(schedule)
+    }, getNextBackupDelay())
+  }
+  signal.addEventListener('abort', () => clearTimeout(timer), { once: true })
+  schedule()
 }
 
 export const isSameDay = (timeA: number, timeB: number) => {

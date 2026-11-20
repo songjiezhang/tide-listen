@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { t } from '@/plugins/i18n'
   import TitleContent from '../components/TitleContent.svelte'
   import { showSimpleConfirmModal } from '@/components/apis/dialog'
   import { ipc } from '@/shared/ipc/ipc'
@@ -73,13 +74,13 @@
       {#if info.started}
         <label class="check">
           <input type="checkbox" checked={info.sources} disabled={working} onchange={(event) => void apply({ action: 'sources', enabled: event.currentTarget.checked })} />
-          同步洛雪 JS 音源
+          {$t('settings.dataSync.tide_sources_enable')}
         </label>
       {/if}
       {#if info.pendingSources && info.pendingRevision !== undefined}
         <div class="preview">
           <strong>服务器音源待确认</strong>
-          <p>确认后按服务器列表替换本机洛雪 JS 音源。</p>
+          <p>{$t('settings.dataSync.tide_sources_review')}</p>
           <ul>{#each info.pendingSources as source}<li>{source.name} · {source.enabled ? '启用' : '停用'}</li>{/each}</ul>
           <button disabled={working} onclick={async () => {
             const revision = info?.pendingRevision

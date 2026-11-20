@@ -611,6 +611,9 @@ declare global {
        */
       'sync.webdav.syncEnable.dislike': boolean
 
+      /** 启用自动备份 */
+      'backup.enable': boolean
+
       /** 备份路径 */
       'backup.backupPath': string
 

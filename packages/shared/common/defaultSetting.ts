@@ -127,6 +127,7 @@ const defaultSetting: AnyListen.AppSetting = {
   'sync.webdav.syncEnable.list': true,
   'sync.webdav.syncEnable.dislike': true,
 
+  'backup.enable': true,
   'backup.backupPath': '',
 
   'download.savePath': '',

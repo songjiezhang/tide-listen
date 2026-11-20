@@ -1,5 +1,5 @@
 import { exposeWorker } from '../utils/worker'
-import { breakChangeBackup, setBackupPath } from './backupTask'
+import { breakChangeBackup, setBackupEnabled, setBackupPath } from './backupTask'
 import { init, backupDB, getDB } from './db'
 import {
   dislike_list,
@@ -18,6 +18,9 @@ const common = {
   backupDB,
   breakChangeBackup: async () => {
     await breakChangeBackup(getDB())
+  },
+  setBackupEnabled: async (enabled: boolean) => {
+    await setBackupEnabled(getDB(), enabled)
   },
   setBackupPath: async (backupPath: string) => {
     await setBackupPath(backupPath)
