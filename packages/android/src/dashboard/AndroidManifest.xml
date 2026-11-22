@@ -1,3 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application><activity android:name=".PlayerActivity" android:screenOrientation="sensorLandscape"/></application>
+    <application>
+        <meta-data android:name="android.allow_multiple_resumed_activities" android:value="true"/>
+        <activity android:name=".PlayerActivity"
+            android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"/>
+    </application>
 </manifest>

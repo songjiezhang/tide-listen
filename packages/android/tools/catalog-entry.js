@@ -16,6 +16,20 @@ import { getLyric as wyLyric } from './src/onlineResource/wy/lyric'
 import { getLyric as txLyric } from './src/onlineResource/tx/lyric'
 import { getLyric as mgLyric } from './src/onlineResource/mg/lyric'
 
+import { search as kgSearch } from './src/onlineResource/kg/musicSearch'
+import { getPic as kgPicture } from './src/onlineResource/kg/pic'
+import { search as kwSearch } from './src/onlineResource/kw/musicSearch'
+import { getPic as kwPicture } from './src/onlineResource/kw/pic'
+import { search as wySearch } from './src/onlineResource/wy/musicSearch'
+import { getPic as wyPicture } from './src/onlineResource/wy/pic'
+import { search as txSearch } from './src/onlineResource/tx/musicSearch'
+import { getPic as txPicture } from './src/onlineResource/tx/pic'
+import { search as mgSearch } from './src/onlineResource/mg/musicSearch'
+import { getPic as mgPicture } from './src/onlineResource/mg/pic'
+
+const search = { kg: kgSearch, kw: kwSearch, wy: wySearch, tx: txSearch, mg: mgSearch }
+const pictures = { kg: kgPicture, kw: kwPicture, wy: wyPicture, tx: txPicture, mg: mgPicture }
+
 const platforms = {
   kg: [getKg, getKgDetail, kgTags, kgSorts, '6'],
   kw: [getKw, getKwDetail, kwTags, kwSorts, 'hot'],
@@ -39,9 +53,16 @@ function lyricInput(platform, info) {
   return { ...info, id: platform === 'kw' ? String(meta.musicId) : info.id, meta }
 }
 
-export async function catalog({action, platform, id, sort, tag, date, musicInfo, page = 1}) {
+export async function catalog({action, platform, id, sort, tag, date, query, musicInfo, page = 1}) {
   const [list, detail, tags, sorts, defaultSort] = platforms[platform]
   switch (action) {
+    case 'search':
+      return search[platform](query, page, 30)
+    case 'picture': {
+      const song = lyricInput(platform, musicInfo)
+      song.id = song.meta.musicId || song.id
+      return { url: await pictures[platform](song) || '' }
+    }
     case 'lyric':
       return lyrics[platform](lyricInput(platform, musicInfo))
     case 'list':

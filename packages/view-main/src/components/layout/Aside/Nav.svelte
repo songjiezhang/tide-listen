@@ -4,7 +4,7 @@
   import { t } from '@/plugins/i18n'
   import { LIST_IDS } from '@any-listen/common/constants'
   import { useExtensionError, useExtensionNewVersionNum } from '@/modules/extension/reactive.svelte'
-  import { useOnlineResourceAvailable } from '@/views/Online/shared.svelte'
+  import { availableOnlineViews, resolveOnlineView, urlParamKeyMap, useOnlineResourceAvailable } from '@/views/Online/shared.svelte'
   import { toOnlineSearch } from '@/modules/resource/actions'
 
   const lastPlayedUrl = `/library?id=${LIST_IDS.LAST_PLAYED}`
@@ -14,26 +14,24 @@
 
   let onlineResourceAvailable = useOnlineResourceAvailable()
 
-  let menus = $derived(
-    [
-      // {
-      //   to: '/search',
-      //   name: $t('search'),
-      //   icon: '#icon-search-2',
-      //   iconSize: '0 0 425.2 425.2',
-      //   enable: true,
-      // },
-      // {
-      //   to: '/songList/list',
-      //   name: $t('song_list'),
-      //   icon: '#icon-album',
-      //   iconSize: '0 0 425.2 425.2',
-      //   enable: true,
-      // },
-      {
+  const desktopSections = [
+    { type: 'search', icon: '#icon-toolbar-find' },
+    { type: 'songlist', icon: '#icon-nav-playlists' },
+    { type: 'topSongs', icon: '#icon-nav-charts' },
+  ] as const
+  const onlineUrl = (view: string) => `/online?${urlParamKeyMap.type}=${view}`
+  const onlineMenus = $derived(import.meta.env.VITE_IS_DESKTOP
+    ? desktopSections.map(({ type, icon }) => ({
+        to: onlineUrl(type),
+        name: $t(`online__type_${type}`),
+        icon,
+        iconSize: '0 0 24 24',
+        enable: onlineResourceAvailable.val && $availableOnlineViews.includes(type),
+      }))
+    : [{
         to: '/online',
         name: $t('online_resources'),
-        icon: import.meta.env.VITE_IS_DESKTOP ? '#icon-nav-cloud' : '#icon-sound_cloud',
+        icon: '#icon-sound_cloud',
         iconSize: '0 0 24 24',
         enable: onlineResourceAvailable.val,
         onclick: (e: MouseEvent) => {
@@ -41,21 +39,11 @@
           e.stopPropagation()
           void toOnlineSearch()
         },
-      },
-      // {
-      //   to: '/online',
-      //   name: $t('list_name__love'),
-      //   icon: '#icon-love',
-      //   iconSize: '0 0 444.87 391.18',
-      //   enable: true,
-      // },
-      // {
-      //   to: '/library',
-      //   name: $t('list_name__default'),
-      //   icon: '#icon-love',
-      //   iconSize: '0 0 444.87 391.18',
-      //   enable: true,
-      // },
+      }])
+
+  let menus = $derived(
+    [
+      ...onlineMenus,
       {
         to: lastPlayedUrl,
         name: $t('list_name__last_play'),
@@ -78,24 +66,20 @@
         iconSize: '0 0 24 24',
         enable: true,
       },
-      {
-        to: '/extenstion',
-        name: $t('extenstion'),
-        icon: import.meta.env.VITE_IS_DESKTOP ? '#icon-nav-extensions' : '#icon-puzzle',
-        iconSize: '0 0 24 24',
-        enable: true,
-        hidden: true,
-      },
     ].filter((m) => m.enable)
   )
 
   let activePath = $derived.by(() => {
     if ($location == '/library' && $query.id == LIST_IDS.LAST_PLAYED) {
       return lastPlayedUrl
-    } else if ($location.startsWith('/online/')) {
-      return '/online'
+    } else if ($location == '/online' || $location.startsWith('/online/')) {
+      if (!import.meta.env.VITE_IS_DESKTOP) return '/online'
+      const view = $location === '/online'
+        ? resolveOnlineView($query[urlParamKeyMap.type], $availableOnlineViews)
+        : $location.slice('/online/'.length)
+      return view ? onlineUrl(view) : ''
     }
-    return menus.some((m) => m.to == $location) ? $location : $location == '/' ? menus[0].to : ''
+    return $location === '/extenstion' || menus.some((m) => m.to === $location) ? $location : ''
   })
   // let activePath = ''
 </script>
@@ -160,9 +144,7 @@
 
 <ul class="aside-nav" role="menu">
   {#each menus as item (item.to)}
-    {#if !item.hidden}
-      {@render listItem(item)}
-    {/if}
+    {@render listItem(item)}
   {/each}
   {@render extensonItem()}
 </ul>

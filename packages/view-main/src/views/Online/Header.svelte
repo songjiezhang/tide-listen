@@ -1,35 +1,29 @@
 <script lang="ts">
   import Tab from '@/components/base/Tab.svelte'
-  import { i18n } from '@/plugins/i18n'
-  import { tabIcons, viewResourceMap, viewTypes, urlParamKeyMap } from './shared.svelte'
-  import { resourceList } from '@/modules/extension/reactive.svelte'
+  import { t } from '@/plugins/i18n'
+  import { availableOnlineViews, tabIcons, urlParamKeyMap, type ViewType } from './shared.svelte'
   import { pushRoute } from '@/modules/resource/actions'
 
-  let { activeview }: { activeview: (typeof viewTypes)[number] } = $props()
-  const typeList = $derived.by(() => {
-    const res = Object.keys($resourceList.resources)
-    return viewTypes
-      .filter((t) => {
-        return viewResourceMap[t].some((r) => res.includes(r))
-      })
-      .map((t) => {
-        return { id: t, icon: tabIcons[t], label: i18n.t(`online__type_${t}`) }
-      })
-  })
+  let { activeview }: { activeview: ViewType } = $props()
+  const typeList = $derived($availableOnlineViews.map((id) => ({ id, icon: tabIcons[id], label: $t(`online__type_${id}`) })))
 </script>
 
 <header class="header">
-  <Tab
-    list={typeList}
-    itemkey="id"
-    itemlabel="label"
-    itemicon="icon"
-    value={activeview}
-    min
-    onchange={(item) => {
-      pushRoute('/online', { [urlParamKeyMap.type]: item.id })
-    }}
-  />
+  {#if import.meta.env.VITE_IS_DESKTOP}
+    <h1>{$t(`online__type_${activeview}`)}</h1>
+  {:else}
+    <Tab
+      list={typeList}
+      itemkey="id"
+      itemlabel="label"
+      itemicon="icon"
+      value={activeview}
+      min
+      onchange={(item) => {
+        pushRoute('/online', { [urlParamKeyMap.type]: item.id })
+      }}
+    />
+  {/if}
   <div id="online-header-right"></div>
 </header>
 
@@ -41,13 +35,10 @@
     align-items: center;
     justify-content: space-between;
     padding: 0 15px;
-    // padding: 8px 0;
-    // background-color: var(--color-primary-light-400-alpha-800);
-    // border-radius: @radius-border;
-
-    // h2 {
-    //   font-size: 18px;
-    //   padding: 0 15px;
-    // }
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 600;
+    }
   }
 </style>

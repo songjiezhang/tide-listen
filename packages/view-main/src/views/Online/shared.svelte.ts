@@ -1,9 +1,7 @@
 import { getSourceId } from '@any-listen/common/tools'
-import { fromStore } from 'svelte/store'
+import { derived, fromStore } from 'svelte/store'
 
 import { resourceList } from '@/modules/extension/reactive.svelte'
-import { extensionEvent } from '@/modules/extension/store/event'
-import { extensionState } from '@/modules/extension/store/state'
 import { useSettingValue } from '@/modules/setting/reactive.svelte'
 import { query } from '@/plugins/routes'
 
@@ -39,26 +37,19 @@ export const urlParamKeyMap = {
   page: 'p',
 }
 
-const isOnlineResourceAvailable = () => {
-  const list = extensionState.resourceList
-  const keys = Object.values(viewResourceMap).flat() as AnyListen.Extension.ResourceAction[]
-  return (Object.keys(list.resources) as AnyListen.Extension.ResourceAction[]).some((key) => keys.includes(key))
-}
+export const availableOnlineViews = derived(resourceList, ({ resources }) =>
+  viewTypes.filter((view) => viewResourceMap[view].some((action) => resources[action]?.length))
+)
+
+export const resolveOnlineView = (type: string | undefined, available: readonly ViewType[]) =>
+  available.find((view) => view === type) ?? available[0]
+
 export const useOnlineResourceAvailable = () => {
-  let enabled = useSettingValue('onlineResource.enable')
-  let available = $state(isOnlineResourceAvailable())
-
-  $effect(() => {
-    if (!enabled) return
-    available = isOnlineResourceAvailable()
-    return extensionEvent.on('resourceListUpdated', () => {
-      available = isOnlineResourceAvailable()
-    })
-  })
-
+  const enabled = useSettingValue('onlineResource.enable')
+  const views = fromStore(availableOnlineViews)
   return {
     get val() {
-      return enabled.val && available
+      return enabled.val && views.current.length > 0
     },
   }
 }

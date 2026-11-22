@@ -242,6 +242,20 @@ final class CatalogEngine {
     }
   }
 
+  static String embeddedCover(Context context, android.net.Uri uri) throws IOException {
+    android.media.MediaMetadataRetriever media = new android.media.MediaMetadataRetriever();
+    try {
+      media.setDataSource(context, uri);
+      byte[] bytes = media.getEmbeddedPicture();
+      if (bytes == null || bytes.length > COVER_SOURCE_LIMIT) return "";
+      Cover image = decodeCover(bytes, false);
+      return "data:" + image.type + ";base64," +
+          android.util.Base64.encodeToString(image.bytes, android.util.Base64.NO_WRAP);
+    } finally {
+      media.release();
+    }
+  }
+
   private static Cover decodeCover(byte[] bytes, boolean migu) throws IOException {
     int outputSide = migu ? 420 : COVER_SIDE;
     BitmapFactory.Options options = new BitmapFactory.Options();

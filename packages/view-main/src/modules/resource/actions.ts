@@ -4,10 +4,9 @@ import { urlParamKeyMap } from '@/views/Online/shared.svelte'
 const historys: Array<[string, Params]> = []
 export const setLastHistory = (path: string, query: Params) => {
   const last = historys[historys.length - 1] as [string, Params] | undefined
-  if (last) {
-    if (path == '/online') {
-      if (query[urlParamKeyMap.type] == last[1][urlParamKeyMap.type]) return
-    } else if (path == last[0]) return
+  if (last && path === last[0] && (path !== '/online' || query[urlParamKeyMap.type] === last[1][urlParamKeyMap.type])) {
+    last[1] = query
+    return
   }
   historys.push([path, query])
 }
@@ -28,53 +27,40 @@ export const replaceRoute = (path: string, query: Params) => {
 
 export const back = () => {
   const loc = getLocation()
-  if (loc.location.startsWith('/online')) {
-    const last = historys.pop()
-    if (last && historys.length) {
-      const current = historys[historys.length - 1]
-      void replace(current[0], current[1])
-      return
-    }
-    void replace('/online')
+  if (loc.location.startsWith('/online')) historys.pop()
+  const previous = historys[historys.length - 1]
+  if (previous) {
+    void replace(previous[0], previous[1])
+  } else if (loc.location === '/online/songlist' || loc.location === '/online/topSongs') {
+    void replace('/online', {
+      [urlParamKeyMap.type]: loc.location.slice('/online/'.length),
+      [urlParamKeyMap.source]: loc.query.sid,
+    })
   } else {
-    if (historys.length) {
-      const current = historys[historys.length - 1]
-      void replace(current[0], current[1])
-      return
-    }
     void replace('/online')
   }
 }
 
-const buildQueryParams = (params: Params, text?: string) => {
-  if (text != null) {
-    if (text) params[urlParamKeyMap.query] = text
-    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-    else delete params[urlParamKeyMap.query]
-
-    if (params[urlParamKeyMap.type] != 'search') {
-      params[urlParamKeyMap.type] = 'search'
-    }
-  }
-  return params
-}
 export const toOnlineSearch = async (text?: string) => {
   const loc = getLocation()
   const lastLoc = historys[historys.length - 1] as [string, Params] | undefined
-  if (text) {
-    if (loc.location.startsWith('/online')) {
-      const params = buildQueryParams({ ...loc.query }, text)
-      await replace('/online', params)
-    } else {
-      const params = buildQueryParams(lastLoc ? { ...lastLoc[1] } : {}, text)
-      await push('/online', params)
+  if (text != null) {
+    const searchLocation = loc.location === '/online' && loc.query[urlParamKeyMap.type] === 'search'
+    const previous = searchLocation ? loc.query : historys.slice().reverse().find(([path, params]) =>
+      path === '/online' && params[urlParamKeyMap.type] === 'search'
+    )?.[1]
+    const params = {
+      [urlParamKeyMap.type]: 'search',
+      [urlParamKeyMap.query]: text || undefined,
+      [urlParamKeyMap.source]: previous?.[urlParamKeyMap.source],
+      [urlParamKeyMap.queryType]: previous?.[urlParamKeyMap.queryType],
     }
+    if (searchLocation) await replace('/online', params)
+    else await push('/online', params)
   } else if (loc.location.startsWith('/online')) {
-    const params = buildQueryParams({ ...loc.query }, text)
-    await replace('/online', params)
+    await replace('/online', loc.query)
   } else {
     const [path, query] = lastLoc || ['/online', {}]
-    const params = buildQueryParams(query, text)
-    await push(path, params)
+    await push(path, query)
   }
 }

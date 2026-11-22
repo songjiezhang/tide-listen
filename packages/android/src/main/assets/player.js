@@ -31,13 +31,52 @@ let favoriteKeys = new Set()
 let playing = { id: '', name: '', artist: '', cover: '', position: 0, duration: 0 }
 let tab = 'home', platform = 'kg', sort = '', tag = '', listId = '', online = null, token = 0
 let catalogMode = 'list', sorting = false
+let query = '', searchSource = 'kg', searchDraft = '', lastPage = ''
+let phoneBrowseScroll = 0
+let artworkId = '', resolvedArtwork = '', pictureRequested = false
+const searches = new Map()
+function catalogTab() { return tab === 'home' || tab === 'list' || tab === 'charts' }
+function searchKey() { return JSON.stringify([searchSource, query]) }
+function rememberPage() {
+  if (!nativeReady || !data.car) return
+  const page = JSON.stringify({ tab, listId, query, searchSource,
+    online: online && { kind: online.kind, platform: online.platform, id: online.id, name: online.name, cover: online.cover },
+    now: !el('nowScreen').hidden })
+  if (page !== lastPage) { lastPage = page; app('carPage', page) }
+}
+function restorePage() {
+  let saved
+  try { saved = JSON.parse(data.carPage || '{}') || {} } catch (_) { saved = {} }
+  tab = ['list', 'charts', 'search', 'lists', 'settings'].includes(saved.tab) ? saved.tab : 'list'
+  catalogMode = tab === 'charts' ? 'charts' : 'list'
+  listId = tab === 'lists' && typeof saved.listId === 'string' ? saved.listId : ''
+  query = searchDraft = typeof saved.query === 'string' ? saved.query.slice(0,128) : ''
+  if (Object.prototype.hasOwnProperty.call(platforms, saved.searchSource)) searchSource = saved.searchSource
+  const ref = saved.online
+  if (catalogTab() && ref && ref.kind === catalogMode && ref.id &&
+      Object.prototype.hasOwnProperty.call(platforms, ref.platform)) {
+    online = ref
+    platform = ref.platform
+  }
+  if (saved.now) showNow(true)
+}
+function requestPicture() {
+  if (!playing.id || pictureRequested) return
+  pictureRequested = true
+  app('picture', playing.id)
+}
+window.pictureReply = ({ id, url }) => {
+  if (playing.id !== id || !url) return
+  resolvedArtwork = url
+  drawTransport()
+}
 const grip = '<button type="button" class="grip" data-grip aria-label="拖动排序">☰</button>'
 const controls = playlistControls(view,
   (moved, anchor, after) => app('moveItem', { listId, moved, anchor, after }),
   (properties) => app('listProperties', properties))
 function canRefresh(item) {
-  const ref = item?.online
-  return ref?.extensionId === 'online-metadata' && Object.prototype.hasOwnProperty.call(platforms, ref.source) &&
+  const ref = item && item.online
+  return !!ref && ref.extensionId === 'online-metadata' && Object.prototype.hasOwnProperty.call(platforms, ref.source) &&
     ['songlist', 'topSongs'].includes(ref.sourceType) && !!ref.syncId
 }
 function refreshList(item) {
@@ -66,7 +105,12 @@ document.addEventListener('error', ({ target }) => {
   if (target.dataset.fallback) {
     target.src = target.dataset.fallback
     delete target.dataset.fallback
-  } else target.remove()
+  } else {
+    const current = target.parentNode
+    target.remove()
+    if (current && (current.id === 'miniCover' || current.id === 'fullCover') &&
+        current.dataset.art === (resolvedArtwork || playing.cover || '')) requestPicture()
+  }
 }, true)
 function setArtwork(node, url) {
   if (node.dataset.art !== url) {
@@ -119,8 +163,9 @@ function isDetailAction(kind) { return kind === 'detail' || kind === 'chart-deta
 
 function loadCatalog(kind, page = 1) {
   const isDetail = isDetailAction(kind)
-  const key = kind === 'options' ? platform : isDetail ? detailKey() : browseKey()
-  const states = kind === 'options' ? filters : isDetail ? details : catalog
+  const searching = kind === 'search'
+  const key = searching ? searchKey() : kind === 'options' ? platform : isDetail ? detailKey() : browseKey()
+  const states = searching ? searches : kind === 'options' ? filters : isDetail ? details : catalog
   const previous = states.get(key)
   if (!key || (previous && previous.loading)) return
   const state = previous || { rows: [] }
@@ -133,7 +178,8 @@ function loadCatalog(kind, page = 1) {
   const next = ++token
   requests.set(next, { kind, key, states, state, page })
   app('catalog', {
-    token: next, action: kind, platform: isDetail ? online.platform : platform,
+    token: next, action: kind, platform: searching ? searchSource : isDetail ? online.platform : platform,
+    query: searching ? query : undefined,
     sort, tag, id: isDetail ? online.id : '', page,
   })
 }
@@ -168,7 +214,7 @@ window.catalogReply = ({ token, result, error, cached }) => {
   }
   const active = isDetailAction(kind) ? key === detailKey() :
     !online && (kind === 'options' ? catalogMode === 'list' && key === platform : key === browseKey())
-  if (tab === 'home' && active) draw()
+  if (kind === 'search' ? tab === 'search' && key === searchKey() : catalogTab() && active) draw()
 }
 
 function openCatalog() {
@@ -179,22 +225,26 @@ function openCatalog() {
   if (catalogMode === 'list' && (!categories || now - categories.checkedAt > 300000)) loadCatalog('options')
 }
 function selectTab(next) {
+  const returningFromSearch = !data.car && tab === 'search' && next === 'home'
   tab = next
   sorting = false
   listId = ''
   online = null
-  if (tab === 'home' && nativeReady) openCatalog()
+  if (data.car && catalogTab()) catalogMode = tab === 'charts' ? 'charts' : 'list'
+  if (catalogTab() && nativeReady) openCatalog()
+  if (tab === 'search' && query && !searches.has(searchKey())) loadCatalog('search')
   view.scrollTop = 0
   draw()
+  if (returningFromSearch) view.scrollTop = phoneBrowseScroll
 }
 
 function card(item, id, subtitle, eager) {
   return '<button type="button" class="playlistCard" data-open="' + esc(id) + '">' +
     cover(item.cover, id === 'love' ? 'heart' : 'disc', id === 'love' ? 'lovedCover' : '', item.coverFallback, eager) +
-    '<span class="cardWords"><strong>' + esc(item.name) + '</strong><small>' + esc(subtitle) + '</small></span></button>'
+    '<span class="cardWords"><strong>' + esc(item.name) + '</strong>' + (subtitle ? '<small>' + esc(subtitle) + '</small>' : '') + '</span></button>'
 }
 function loading(state, kind, noRows) {
-  const subject = kind === 'charts' ? '排行榜' : kind === 'chart-detail' ? '榜单歌曲' : '歌单'
+  const subject = kind === 'search' ? '搜索结果' : kind === 'charts' ? '排行榜' : kind === 'chart-detail' ? '榜单歌曲' : '歌单'
   if (state && state.loading) return noRows ? '<div class="empty" role="status">正在读取' + subject + '…</div>' : ''
   if (state && state.error) return '<div class="empty" role="status">' +
     (noRows ? '当前来源暂时无法获取' : '刷新失败 · 正在显示上次的') + subject +
@@ -223,8 +273,9 @@ function homeFilters() {
 function homeLists() {
   const state = catalog.get(browseKey())
   const rows = state ? state.rows : []
-  return '<div class="playlistGrid">' + rows.map((item, i) =>
-    card(item, item.id, [platforms[platform], item.total != null ? item.total + ' 首' : item.author].filter(Boolean).join(' · '), i < 4)
+  const compact = !data.car && catalogMode === 'list'
+  return '<div class="playlistGrid' + (compact ? ' compactPlaylists' : '') + '">' + rows.map((item, i) =>
+    card(item, item.id, compact ? '' : [platforms[platform], item.total != null ? item.total + ' 首' : item.author].filter(Boolean).join(' · '), i < (compact ? 9 : 4))
   ).join('') + '</div>' + loading(state, catalogMode, rows.length === 0)
 }
 function showPlaylist(id) {
@@ -261,7 +312,7 @@ function trackRows(rows, remove) {
   }).join('') + '</ol>'
 }
 function detail() {
-  const remote = tab === 'home'
+  const remote = catalogTab()
   const state = remote ? details.get(detailKey()) : null
   const own = !remote && showPlaylist(listId) && data.playlists.find((item) => item.id === listId)
   if (!remote && !own) return myLists()
@@ -314,12 +365,13 @@ function sourceCards() {
     actions(item, '移除', 'removeSource') + '</div></article>').join('')
 }
 function settings() {
+  const paired = data.tide && data.tide.account
   const syncTime = data.lastSync ? '上次同步 · ' + new Date(data.lastSync).toLocaleString() : data.syncConfigured ? '等待同步' : '尚未配置';
   return '<div class="pageTitle"><h1>设置</h1></div><div class="settingGroups"><section>' +
     '<h2>同步</h2><div class="setting"><div><strong>汐听同步服务</strong><small>' +
-    esc(data.tide?.account ? data.tide.account + ' · ' + syncTime : '使用服务器地址和一次性配对码') +
-    '</small></div>' + (data.tide?.account ? button('tideDisconnect', '断开') : button('tidePair', '配对')) + '</div>' +
-    (data.tide?.account
+    esc(paired ? data.tide.account + ' · ' + syncTime : '使用服务器地址和一次性配对码') +
+    '</small></div>' + (paired ? button('tideDisconnect', '断开') : button('tidePair', '配对')) + '</div>' +
+    (paired
       ? '<div class="setting"><div><strong>同步音源</strong><small>' +
         (data.tide.sources ? '已开启' : '默认关闭') + '</small></div>' +
         button('tideSources:' + String(!data.tide.sources), data.tide.sources ? '关闭' : '开启') + '</div>' +
@@ -327,7 +379,7 @@ function settings() {
       : '<div class="setting"><div><strong>WebDAV</strong><small>' + esc(syncTime) +
         '</small></div>' + button('dav', '配置') + '</div>') +
     (data.syncConfigured ? button('sync', data.syncing ? '正在同步…' : '立即同步', 'sync') : '') +
-    (data.tide?.account && data.changeWatchError ?
+    (paired && data.changeWatchError ?
       '<p class="muted" role="status">' + esc('自动同步监听 · ' + data.changeWatchError + '，正在重试') + '</p>' : '') +
     '<p id="status" role="status">' + esc(data.status) + '</p></section><section><h2>播放与显示</h2>' +
     selectOption('playMode', '播放顺序', modes) +
@@ -349,20 +401,37 @@ function settings() {
     button('projectSource', '查看') + '</div></section></div>'
 }
 
+function searchView() {
+  const sources = '<select aria-label="搜索来源" id="searchSource">' +
+    options(Object.keys(platforms).map((id) => ({id, name: platforms[id]})), searchSource) + '</select>'
+  const field = '<input type="search" maxlength="128" enterkeyhint="search" aria-label="搜索歌曲或歌手" placeholder="搜索歌曲或歌手" required>'
+  const form = data.car
+    ? '<div class="pageTitle"><h1>搜索</h1></div><form class="carSearch" id="carSearch">' + sources + field +
+      '<button type="submit" class="primary">搜索</button></form>'
+    : '<form class="phoneSearch" id="carSearch"><label class="searchBox">' + icons('search') + field + '</label>' +
+      '<button type="submit" class="searchSubmit">搜索</button>' + button('cancel-search', '取消') + '</form>' +
+      '<div class="filters">' + sources + '</div>'
+  return form + '<div id="searchResults"></div>'
+}
+
 function draw() {
   const previousTop = view.scrollTop
   visibleTracks = []
+  const selectedTab = !data.car && tab === 'search' ? 'home' : tab
   tabs.forEach((btn) => {
-    if (btn.dataset.tab === tab) btn.setAttribute('aria-current', 'page')
+    if (btn.dataset.tab === selectedTab) btn.setAttribute('aria-current', 'page')
     else btn.removeAttribute('aria-current')
   })
-  const showHome = tab === 'home' && !online
-  const markup = showHome ? '<div class="catalogSwitch" role="group" aria-label="在线资源">' +
+  const showHome = catalogTab() && !online
+  const markup = showHome ? (data.car ? '' : button('home-search', '搜索歌曲或歌手', 'search', 'homeSearch') +
+    '<div class="catalogSwitch" role="group" aria-label="在线资源">' +
     Object.entries(catalogLabels).map(([mode, label]) => '<button type="button" data-catalog-mode="' + mode + '">' + label + '</button>').join('') +
-    '</div><div class="filters"></div><div id="catalogResults"></div>' :
+    '</div>') + '<div class="filters"></div><div id="catalogResults"></div>' :
+    tab === 'search' ? searchView() :
     tab === 'settings' ? settings() : listId || online ? detail() : myLists()
   if (markup !== viewMarkup) {
     replaceCoverMarkup(view, markup)
+    if (tab === 'search') el('carSearch').querySelector('input').value = searchDraft
     viewMarkup = markup
     filterMarkup = catalogMarkup = ''
   }
@@ -381,6 +450,16 @@ function draw() {
       catalogMarkup = lists
     }
   }
+  if (tab === 'search') {
+    const result = searches.get(searchKey())
+    visibleTracks = result ? result.rows : []
+    const html = query ? trackRows(visibleTracks, false) + loading(result, 'search', !visibleTracks.length) : ''
+    if (catalogMarkup !== html) {
+      el('searchResults').innerHTML = html
+      catalogMarkup = html
+    }
+  }
+  rememberPage()
   view.scrollTop = previousTop
   drawTransport()
 }
@@ -427,8 +506,15 @@ function drawTransport() {
   el('fullName').textContent = p.name || '尚未播放'
   el('nowArtist').textContent = p.loading ? '正在加载…' : p.artist || ''
   el('fullArtist').textContent = p.artist || ''
-  setArtwork(el('miniCover'), p.cover || '')
-  setArtwork(el('fullCover'), p.cover || '')
+  if (artworkId !== p.id) {
+    artworkId = p.id
+    resolvedArtwork = ''
+    pictureRequested = false
+  }
+  const picture = resolvedArtwork || p.cover || ''
+  setArtwork(el('miniCover'), picture)
+  setArtwork(el('fullCover'), picture)
+  if (!picture) requestPicture()
   el('miniMode').hidden = !data.car
   ;['mini', 'full'].forEach((size) => {
     const heart = el(size + 'Heart')
@@ -475,8 +561,11 @@ window.library = (update) => {
           tag = saved.tag || ''
         }
       } catch (_) {}
-      openCatalog()
     }
+    if (data.car) restorePage()
+    if (online) loadCatalog(detailAction())
+    else if (catalogTab()) openCatalog()
+    else if (tab === 'search' && query) loadCatalog('search')
   }
   favoriteKeys = new Set(data.favoriteKeys || [])
   document.body.classList.toggle('car', data.car)
@@ -515,6 +604,14 @@ view.addEventListener('click', (event) => {
     view.scrollTop = 0
     openCatalog()
     draw()
+  } else if (item.do === 'home-search') {
+    phoneBrowseScroll = view.scrollTop
+    searchDraft = query = ''
+    searchSource = platform
+    selectTab('search')
+    el('carSearch').querySelector('input').focus()
+  } else if (item.do === 'cancel-search') {
+    selectTab('home')
   } else if (item.open !== undefined) {
     sorting = false
     if (tab === 'lists') {
@@ -522,9 +619,10 @@ view.addEventListener('click', (event) => {
       const list = data.playlists.find((l) => l.id === listId)
       if (canRefresh(list) && list.autoSync && Date.now() - list.syncTime > 86400000) refreshList(list)
     } else {
-      const row = catalog.get(browseKey())?.rows.find((itemRow) => String(itemRow.id) === item.open)
+      const section = catalog.get(browseKey())
+      const row = section && section.rows.find((itemRow) => String(itemRow.id) === item.open)
       if (!row) return
-      online = { ...row, platform, kind: catalogMode }
+      online = Object.assign({}, row, { platform, kind: catalogMode })
       if (!details.has(detailKey())) loadCatalog(detailAction())
     }
     view.scrollTop = 0
@@ -550,21 +648,43 @@ view.addEventListener('click', (event) => {
   else if (item.do === 'delete') app('deleteList', listId)
   else if (item.do === 'save-online' && online) {
     app('saveCatalog', { action: detailAction(), id: String(online.id), name: online.name, platform: online.platform })
-  } else if (item.do?.startsWith('tideSources:')) app('tideSources', item.do.slice('tideSources:'.length))
+  } else if (item.do && item.do.startsWith('tideSources:')) app('tideSources', item.do.slice('tideSources:'.length))
   else if (['tidePair', 'tideDisconnect', 'tideApprove', 'dav', 'sync', 'source', 'updateSources', 'checkAppUpdate', 'projectSource'].includes(item.do)) app(item.do)
   else if (item.do === 'retry-options') {
     loadCatalog('options')
     draw()
-  } else if (item.do && /^(retry|more)-(list|detail|charts|chart-detail)$/.test(item.do)) {
+  } else if (item.do && /^(retry|more)-(list|detail|charts|chart-detail|search)$/.test(item.do)) {
     const kind = item.do.slice(item.do.indexOf('-') + 1)
-    const state = isDetailAction(kind) ? details.get(detailKey()) : catalog.get(browseKey())
+    const state = kind === 'search' ? searches.get(searchKey()) : isDetailAction(kind) ? details.get(detailKey()) : catalog.get(browseKey())
     loadCatalog(kind, item.do.startsWith('retry') ? state.failedPage : state.next)
     draw()
   }
 })
+view.addEventListener('input', (event) => {
+  if (event.target.form && event.target.form.id === 'carSearch' && event.target.type === 'search')
+    searchDraft = event.target.value
+})
+function submitSearch() {
+  query = searchDraft.trim()
+  if (query) {
+    searches.clear()
+    loadCatalog('search')
+  }
+  draw()
+}
+view.addEventListener('submit', (event) => {
+  if (event.target.id !== 'carSearch') return
+  event.preventDefault()
+  searchDraft = event.target.querySelector('input').value
+  event.target.querySelector('input').blur()
+  submitSearch()
+})
 view.addEventListener('change', (event) => {
   const target = event.target
-  if (target.dataset.pref) {
+  if (target.id === 'searchSource') {
+    searchSource = target.value
+    submitSearch()
+  } else if (target.dataset.pref) {
     app(target.dataset.pref, target.type === 'checkbox' ? String(target.checked) : target.value)
   } else if (target.id === 'sourceFilter' || target.id === 'tagFilter' || target.id === 'sortFilter') {
     if (target.id === 'sourceFilter') { platform = target.value; sort = ''; tag = '' }
@@ -595,6 +715,7 @@ function showNow(open) {
   if (!open) { seekHeld = false; lyrics.hide() }
   updateFullClock()
   el(open ? 'closeNow' : 'nowOpen').focus()
+  rememberPage()
 }
 el('nowOpen').onclick = () => showNow(true)
 el('closeNow').onclick = () => showNow(false)
@@ -623,7 +744,8 @@ window.goBack = () => {
   if (controls.close()) return true
   if (!el('nowScreen').hidden) { showNow(false); return true }
   if (online || listId) { selectTab(tab); return true }
-  if (tab !== 'home') { selectTab('home'); return true }
+  const first = data.car ? 'list' : 'home'
+  if (tab !== first) { selectTab(first); return true }
   return false
 }
 selectTab('home')

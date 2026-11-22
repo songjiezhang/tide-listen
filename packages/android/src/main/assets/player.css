@@ -146,7 +146,7 @@ nav svg { width: 18px; height: 18px; }
 .screenContent {
   flex: 1 1 0; min-height: 0; display: grid;
   grid-template: "art" minmax(0,max-content) "song" auto "lyrics" minmax(0,1fr) "transport" auto / minmax(0,1fr);
-  gap: 9px; margin: 0 auto; width: min(100%,480px); padding: 6px 16px 16px; min-width: 0;
+  gap: 9px; margin: 0 auto; width: 100%; max-width: 480px; padding: 6px 16px 16px; min-width: 0;
 }
 .fullCover {
   grid-area: art; width: min(56%, 25vh, 195px); aspect-ratio: 1; border-radius: 17px;
@@ -217,7 +217,7 @@ nav svg { width: 18px; height: 18px; }
 }
 @media (orientation: landscape) {
   .screenContent {
-    width: min(100%, 1100px);
+    width: 100%; max-width: 1100px;
     grid-template: "art lyrics" minmax(0,1fr) "song lyrics" auto "transport lyrics" auto / minmax(0,.84fr) minmax(0,1.42fr);
     gap: 9px 22px; padding: 4px 22px 17px;
   }
@@ -272,9 +272,13 @@ body.car.largeControls :is(.trackCopy strong,.nowText strong) { font-size: 18px;
   .settingGroups { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 15px; }
 }
 @media (min-width: 790px) { .playlistGrid { grid-template-columns: repeat(4,minmax(0,1fr)); } }
+@media (max-width: 460px) {
+  body.car #miniPlayer { grid-template-columns: minmax(0,1fr); }
+  body.car .miniControls { justify-content: space-around; }
+  body.car .miniControls button { width: 48px; min-height: 46px; }
+  body.car .miniControls .round { width: 50px; height: 50px; }
+}
 @media (max-width: 365px) {
-  body.car .miniControls button { width: clamp(42px, 14vw, 52px); }
-  body.car .miniControls .round { width: clamp(44px, 15vw, 55px); height: 56px; }
   body.car .appHeader, body.car main, .appHeader, main { padding-left: 11px; padding-right: 11px; }
 }
 @supports not (aspect-ratio: 1) {
@@ -302,3 +306,53 @@ body.car.largeControls :is(.trackCopy strong,.nowText strong) { font-size: 18px;
 #playlistForm fieldset { border: 0; margin: 0; padding: 0; }
 #playlistForm label:has([type=checkbox]) { justify-content: flex-start; }
 #playlistForm .actions { justify-content: flex-end; margin-top: 12px; }
+
+nav .carTab, body.car nav [data-tab="home"] { display: none; }
+body.car nav .carTab { display: inline-flex; }
+body.car nav { grid-template-columns: repeat(5,minmax(0,1fr)); }
+body.car nav button { padding: 2px; flex-direction: column; white-space: nowrap; }
+body.car nav svg { margin: 0; }
+body.car .playlistGrid { grid-template-columns: repeat(auto-fill,minmax(132px,1fr)); }
+body.car .playlistCard .cover { height: auto; aspect-ratio: auto; display: block; }
+body.car .playlistCard .cover::before { content: ""; display: block; padding-top: 66.6667%; }
+.cover img, .cover svg { left: 0; top: 0; right: 0; bottom: 0; }
+body.car .fullCover { width: 28vh; height: 28vh; max-width: 200px; max-height: 200px; }
+.homeSearch, .searchBox {
+  display: flex; align-items: center; border: 1px solid var(--border); border-radius: 14px;
+  background: var(--panel); color: var(--muted); padding: 0 12px;
+}
+.homeSearch { justify-content: flex-start; width: 100%; margin-bottom: 12px; }
+.homeSearch svg, .searchBox svg { width: 18px; margin-right: 8px; }
+.phoneSearch { display: flex; align-items: center; margin-bottom: 12px; }
+.searchBox { flex: 1; min-width: 0; }
+.searchBox input { min-width: 0; width: 100%; height: 44px; border: 0; background: transparent; color: var(--fg); }
+.phoneSearch button { color: var(--accent); padding: 0 8px; }
+.compactPlaylists { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px 8px; }
+.compactPlaylists .playlistCard { border-radius: 9px; background: transparent; }
+.compactPlaylists .cover { height: auto; aspect-ratio: auto; display: block; border-radius: 9px; }
+.compactPlaylists .cover::before { content: ""; display: block; padding-top: 66.6667%; }
+.compactPlaylists .cardWords { padding: 4px 0 0; font-size: 14px; }
+body:not(.car) #view .filters select { width: auto; max-width: 100%; flex: 0 1 auto; }
+.carSearch { display: flex; align-items: stretch; margin: 0 0 12px; }
+.carSearch input { flex: 1; min-width: 0; margin: 0 6px; padding: 0 10px; color: var(--fg);
+  background: var(--panel); border: 1px solid var(--border); border-radius: 11px; font: inherit; }
+
+@media (orientation: landscape) {
+  body.car #shell { grid-template-columns: 96px minmax(0,1fr); grid-template-rows: auto minmax(0,1fr) auto;
+    grid-template-areas: "rail header" "rail content" "rail player"; }
+  body.car #shell > header { grid-area: header; }
+  body.car #view { grid-area: content; }
+  body.car #miniPlayer { grid-area: player; }
+  body.car nav { grid-area: rail; display: flex; flex-direction: column; overflow-y: auto;
+    border-right: 1px solid var(--border); padding: 6px 4px; }
+  body.car nav button { flex: 0 0 auto; margin-bottom: 4px; }
+  body.car .fullCover { width: 32vh; height: 32vh; max-width: 240px; max-height: 240px; }
+}
+@media (orientation: landscape) and (max-height: 320px) {
+  body.car nav button { min-height: 40px; flex-direction: row; font-size: 13px; }
+  body.car nav svg { width: 16px; margin-right: 3px; }
+  body.car .fullCover { width: 15vh; height: 15vh; }
+}
+@media (orientation: portrait) and (max-height: 440px) {
+  body.car .fullCover { width: 58px; height: 58px; }
+}

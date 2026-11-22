@@ -182,27 +182,27 @@ public final class PlayerActivity extends Activity {
   }
 
   @Override
-  public void onResume() {
-    super.onResume();
+  public void onStart() {
+    super.onStart();
     visible = true;
-    resumeOnOpen();
     tick.run();
     checkLocalSources = true;
     if (playlistReady) scheduleSync(700);
   }
 
   @Override
-  public void onPause() {
+  public void onResume() {
+    super.onResume();
+    resumeOnOpen();
+  }
+
+  @Override
+  public void onStop() {
     visible = false;
     page.setKeepScreenOn(false);
     main.removeCallbacks(tick);
     cancelChangeWatch();
     if (store.desktop.pendingCount() == 0 && !checkLocalSources) main.removeCallbacks(autoSync);
-    super.onPause();
-  }
-
-  @Override
-  public void onStop() {
     if (!isChangingConfigurations() && !isFinishing() && !choosingFile) startupResume = true;
     super.onStop();
   }
@@ -263,6 +263,8 @@ public final class PlayerActivity extends Activity {
               store.desktop.favoriteKeys(),
               "playlistReady",
               playlistReady,
+              "carPage",
+              store.prefs.getString("carPage", "{}"),
               "catalogSelection",
               store.prefs.getString("catalogSelection", "{}"),
               "showListeningList",
@@ -469,6 +471,13 @@ public final class PlayerActivity extends Activity {
         break;
       case "cancelLyrics":
         cancelLyrics();
+        break;
+      case "carPage":
+        if (BuildConfig.FLAVOR.equals("dashboard") && arg.length() <= 8192)
+          store.prefs.edit().putString("carPage", arg).apply();
+        break;
+      case "picture":
+        if (arg.equals(playingId()) && !arg.isEmpty()) loadPicture(arg);
         break;
       case "catalogSelection":
         JSONObject selection = new JSONObject(arg);
@@ -1147,6 +1156,36 @@ public final class PlayerActivity extends Activity {
     lyricRequest = null;
   }
 
+  private void loadPicture(String id) {
+    catalogWorker.execute(() -> {
+      String url = "";
+      try {
+        JSONObject track = store.track(id);
+        if ("local".equals(track.optString("source"))) {
+          Uri uri = Uri.parse(track.getString("uri"));
+          if ("content".equals(uri.getScheme())) url = CatalogEngine.embeddedCover(this, uri);
+        } else {
+          JSONObject song = store.sharedRow(track);
+          String platform = song.getJSONObject("meta").optString("source");
+          if (MusicStore.PLATFORMS.contains(platform)) {
+            JSONObject result = CatalogEngine.run(this,
+                obj("action", "picture", "platform", platform, "musicInfo", song));
+            url = CatalogEngine.art(result.optString("url"));
+          }
+        }
+      } catch (Exception ignored) {
+        // A track can have no artwork, or its provider can be offline.
+      }
+      final String artwork = url;
+      main.post(() -> {
+        if (!isDestroyed() && id.equals(playingId())) {
+          try { emit("pictureReply", obj("id", id, "url", artwork)); }
+          catch (JSONException ignored) { }
+        }
+      });
+    });
+  }
+
   private void loadLyrics(String id, int token) {
     if (id.isEmpty() || !id.equals(playingId())) return;
     cancelLyrics();
@@ -1230,7 +1269,7 @@ public final class PlayerActivity extends Activity {
           }
           try {
             JSONObject result = CatalogEngine.run(this, request);
-            if ("detail".equals(action) || "chart-detail".equals(action)) {
+            if ("detail".equals(action) || "chart-detail".equals(action) || "search".equals(action)) {
               result.put("list", store.catalogSongs(result.getJSONArray("list")));
               JSONObject info = result.optJSONObject("info");
               if (info != null) info.put("cover", CatalogEngine.art(info.optString("img")));

@@ -2,8 +2,12 @@
   <defs>
     {#if import.meta.env.VITE_IS_DESKTOP}
       <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-        <g id="icon-nav-cloud">
-          <path d="M17.5 19H9a7 7 0 1 1 6.7-9h1.8a4.5 4.5 0 1 1 0 9Z" />
+        <g id="icon-nav-playlists">
+          <path d="M4 6h14M4 11h9M4 16h6M18 10v8l4-1v-8l-4 1Z" />
+          <circle cx="16" cy="18" r="2" />
+        </g>
+        <g id="icon-nav-charts">
+          <path d="M4 20V12h4v8m2 0V5h4v15m2 0v-9h4v9M3 20h18" />
         </g>
         <g id="icon-nav-history">
           <circle cx="12" cy="12" r="8" />

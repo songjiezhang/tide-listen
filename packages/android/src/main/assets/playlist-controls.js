@@ -18,10 +18,11 @@ function playlistControls(view, move, save) {
     const name = fields.listName.value.trim()
     const syncId = fields.syncId.value.trim()
     if (!name || (fields.syncId.required && !syncId)) return
+    const previous = editing.online
     const online = fields.listType.value === 'online' && !fields.platform.disabled
       ? { extensionId: 'online-metadata', source: fields.platform.value, sourceType: fields.kind.value,
-          syncId, date: editing.online?.syncId === syncId && editing.online?.source === fields.platform.value &&
-            editing.online?.sourceType === fields.kind.value ? editing.online.date || '' : '' } : null
+          syncId, date: previous && previous.syncId === syncId && previous.source === fields.platform.value &&
+            previous.sourceType === fields.kind.value ? previous.date || '' : '' } : null
     save({ id: editing.id, name, online, autoSync: fields.autoSync.checked })
     dialog.close()
   }
@@ -30,17 +31,18 @@ function playlistControls(view, move, save) {
     cancelAnimationFrame(frame)
     if (!drag) return
     drag.source.classList.remove('dragSource')
-    drag.target?.classList.remove('dragTarget')
+    if (drag.target) drag.target.classList.remove('dragTarget')
     drag = null
   }
   function findTarget() {
     if (!drag) return
     const rect = view.getBoundingClientRect()
     const inside = drag.y >= rect.top && drag.y <= rect.bottom && drag.x >= rect.left && drag.x <= rect.right
-    const row = inside && document.elementFromPoint(drag.x, drag.y)?.closest('[data-sort-id]')
-    drag.target?.classList.remove('dragTarget')
+    const hit = inside && document.elementFromPoint(drag.x, drag.y)
+    const row = hit && hit.closest('[data-sort-id]')
+    if (drag.target) drag.target.classList.remove('dragTarget')
     drag.target = row && row !== drag.source && row.parentElement === drag.source.parentElement ? row : null
-    drag.target?.classList.add('dragTarget')
+    if (drag.target) drag.target.classList.add('dragTarget')
   }
   function scroll() {
     if (!drag || !drag.source.isConnected) return clearDrag()
@@ -62,12 +64,12 @@ function playlistControls(view, move, save) {
     frame = requestAnimationFrame(scroll)
   })
   view.addEventListener('pointermove', (event) => {
-    if (drag?.pointer !== event.pointerId) return
+    if (!drag || drag.pointer !== event.pointerId) return
     drag.x = event.clientX
     drag.y = event.clientY
   })
   view.addEventListener('pointerup', (event) => {
-    if (drag?.pointer !== event.pointerId) return
+    if (!drag || drag.pointer !== event.pointerId) return
     drag.x = event.clientX
     drag.y = event.clientY
     findTarget()
@@ -79,12 +81,13 @@ function playlistControls(view, move, save) {
   view.addEventListener('lostpointercapture', clearDrag)
   view.addEventListener('pointercancel', clearDrag)
   view.addEventListener('keydown', (event) => {
-    const source = event.target.closest('[data-grip]')?.closest('[data-sort-id]')
+    const grip = event.target.closest('[data-grip]')
+    const source = grip && grip.closest('[data-sort-id]')
     if (!source || !['ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft'].includes(event.key)) return
     event.preventDefault()
     const after = event.key === 'ArrowDown' || event.key === 'ArrowRight'
     const target = after ? source.nextElementSibling : source.previousElementSibling
-    if (target?.dataset.sortId) move(source.dataset.sortId, target.dataset.sortId, after)
+    if (target && target.dataset.sortId) move(source.dataset.sortId, target.dataset.sortId, after)
   })
   return {
     edit(list) {
@@ -96,9 +99,9 @@ function playlistControls(view, move, save) {
       fields.listName.value = list.name
       fields.listType.value = ref ? 'online' : 'general'
       fields.listType.disabled = !!ref
-      fields.platform.value = ref?.source || 'kg'
-      fields.kind.value = ref?.sourceType || 'songlist'
-      fields.syncId.value = ref?.syncId || ''
+      fields.platform.value = (ref && ref.source) || 'kg'
+      fields.kind.value = (ref && ref.sourceType) || 'songlist'
+      fields.syncId.value = (ref && ref.syncId) || ''
       for (const input of [fields.platform, fields.kind, fields.syncId]) input.disabled = unsupported
       fields.autoSync.checked = !!list.autoSync
       toggleFields()

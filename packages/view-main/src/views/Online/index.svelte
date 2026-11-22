@@ -1,32 +1,16 @@
 <script lang="ts">
   import Header from './Header.svelte'
   import { location, query } from '@/plugins/routes'
-  import { urlParamKeyMap, viewResourceMap, viewTypes } from './shared.svelte'
+  import { availableOnlineViews, resolveOnlineView, urlParamKeyMap } from './shared.svelte'
   import Search from './Search/Search.svelte'
   import Songlist from './Songlist/Songlist.svelte'
   import TopSongs from './TopSongs/TopSongs.svelte'
   import Album from './Album/Album.svelte'
   import Singer from './Singer/Singer.svelte'
-  import { resourceList } from '@/modules/extension/reactive.svelte'
   import Empty from '@/components/material/Empty.svelte'
   import { setLastHistory } from '@/modules/resource/actions'
 
-  type ViewType = (typeof viewTypes)[number] | undefined
-  let activeView = $derived.by<ViewType>(() => {
-    let type = $query[urlParamKeyMap.type] as ViewType
-    type = viewTypes.find((t) => t == type)
-    const resList = Object.keys($resourceList.resources) as AnyListen.Extension.ResourceAction[]
-    if (type) {
-      const resKeys = viewResourceMap[type]
-      if (resKeys.some((r) => resList.includes(r))) {
-        return type
-      }
-    }
-    type = Object.entries(viewResourceMap).find(([, resKeys]) => {
-      return resKeys.some((r) => resList.includes(r))
-    })?.[0] as ViewType
-    if (type) return type
-  })
+  const activeView = $derived(resolveOnlineView($query[urlParamKeyMap.type], $availableOnlineViews))
 
   $effect(() => {
     setLastHistory($location, { ...$query })
