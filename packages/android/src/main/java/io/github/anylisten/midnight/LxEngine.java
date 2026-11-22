@@ -8,6 +8,7 @@ import android.os.HandlerThread;
 import android.util.Base64;
 import com.whl.quickjs.android.QuickJSLoader;
 import com.whl.quickjs.wrapper.QuickJSContext;
+import com.whl.quickjs.wrapper.QuickJSException;
 import java.io.IOException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -96,6 +97,11 @@ final class LxEngine {
         });
     try {
       if (!done.await(35, TimeUnit.SECONDS)) throw new IOException("音源请求超时");
+      if (error instanceof QuickJSException) {
+        String detail = error.getMessage() == null ? "" : error.getMessage().split("[\r\n]", 2)[0]
+            .replaceFirst("^(?:UnhandledPromiseRejectionException:\\s*)?(?:Error:\\s*)?", "").trim();
+        throw new IOException(detail.isEmpty() ? "音源脚本运行失败" : detail, error);
+      }
       if (error != null) throw error;
       return result;
     } finally {
@@ -218,8 +224,8 @@ final class LxEngine {
           }
         }
         if (supported.length() == 0) throw new IOException("此脚本没有声明可播放的平台或音质");
+        result = obj("platforms", supported, "qualities", qualityMap);
         if (song == null) {
-          result = obj("platforms", supported, "qualities", qualityMap);
           done.countDown();
           return;
         }
@@ -251,8 +257,9 @@ final class LxEngine {
         if (!key.equals(msg.optString("requestKey"))) return;
         if (!msg.optBoolean("status"))
           throw new IOException(msg.optString("errorMessage", "音源解析失败"));
-        result = msg.getJSONObject("result").getJSONObject("data");
-        if (HttpUrl.parse(result.getString("url")) == null) throw new IOException("音源返回了无效的播放地址");
+        String url = msg.getJSONObject("result").getJSONObject("data").getString("url");
+        if (HttpUrl.parse(url) == null) throw new IOException("音源返回了无效的播放地址");
+        result.put("url", url);
         done.countDown();
         break;
     }

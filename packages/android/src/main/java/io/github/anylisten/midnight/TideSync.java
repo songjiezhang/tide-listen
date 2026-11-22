@@ -3,7 +3,6 @@ package io.github.anylisten.midnight;
 import static io.github.anylisten.midnight.MusicStore.obj;
 import static io.github.anylisten.midnight.DesktopPlaylists.serialized;
 
-import android.content.Context;
 import java.io.IOException;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -186,18 +185,18 @@ final class TideSync {
     return sourcesTrusted(store) ? new JSONArray() : new JSONArray(store.prefs.getString(PENDING, "[]"));
   }
 
-  static String approve(MusicStore store, Context context, int revision) throws Exception {
+  static String approve(MusicStore store, int revision) throws Exception {
     synchronized (DavSync.class) {
       if (!store.prefs.getBoolean(SOURCES, false)) throw new IOException("请先启用音源同步");
-      new TideSync(store).sources(context, revision);
+      new TideSync(store).sources(revision);
       return "服务器音源已应用";
     }
   }
 
-  static String sync(MusicStore store, Context context) throws Exception {
+  static String sync(MusicStore store) throws Exception {
     if (!enabled(store)) return DavSync.sync(store);
     syncLists(store);
-    if (sourcesEnabled(store)) syncSources(store, context);
+    if (sourcesEnabled(store)) syncSources(store);
     return "汐听歌单已同步";
   }
 
@@ -208,9 +207,9 @@ final class TideSync {
     }
   }
 
-  static void syncSources(MusicStore store, Context context) throws Exception {
+  static void syncSources(MusicStore store) throws Exception {
     synchronized (DavSync.class) {
-      if (sourcesEnabled(store)) new TideSync(store).sources(context, null);
+      if (sourcesEnabled(store)) new TideSync(store).sources(null);
     }
   }
 
@@ -260,7 +259,7 @@ final class TideSync {
     return okio.ByteString.encodeUtf8(flat.toString()).sha256().hex();
   }
 
-  private void sources(Context context, Integer approve) throws Exception {
+  private void sources(Integer approve) throws Exception {
     JSONObject snapshot = get("sources");
     int revision = snapshot.getInt("revision");
     JSONArray remote = snapshot.optJSONArray("data");
@@ -287,7 +286,7 @@ final class TideSync {
       if (!fingerprint.equals(store.prefs.getString(SOURCE_HASH, "")) && (local.length() > 0 || remote != null))
         revision = put("sources", revision, local);
     } else {
-      store.sources.installTideSources(context, remote == null ? new JSONArray() : remote);
+      store.sources.installTideSources(remote == null ? new JSONArray() : remote);
       fingerprint = digest(store.sources.exportTideSources());
     }
     store.prefs.edit().putBoolean(SOURCE_TRUSTED, true).putInt(SOURCE_REV, revision)

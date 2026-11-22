@@ -19,7 +19,7 @@ public class SyncTest extends Instrumentation {
       MusicStore store=MusicStore.get(context);
       if (TideSync.enabled(store)) TideSync.disconnect(store);
       TideSync.pair(store, "http://127.0.0.1:8472", args.getString("code"));
-      TideSync.sync(store,context);
+      TideSync.sync(store);
       String role=args.getString("role");
       String keys=store.desktop.lists().toString();
       check(keys.contains("通勤歌单"),"identical playlist name");
@@ -36,7 +36,7 @@ public class SyncTest extends Instrumentation {
           notified.countDown();
         });
         try {
-          TideSync.sync(store,context);
+          TideSync.sync(store);
           check(notified.await(5, TimeUnit.SECONDS) && listChanged.get(), "list revision notification");
         } finally {
           watch.cancel();
@@ -61,7 +61,7 @@ public class SyncTest extends Instrumentation {
           library.saveOnline(library.scopeId(), "qa-list", "", "", chart, new JSONArray(), System.currentTimeMillis());
         } catch (java.io.IOException expected) { rejected = true; }
         check(rejected && library.songs("qa-list").length() == 2, "stale refresh preserves songs");
-        TideSync.sync(store, context);
+        TideSync.sync(store);
         check(library.pendingCount() == 0, "playlist changes acknowledged");
       } else {
         check(store.desktop.songs("love").toString().contains("手机离线收藏"), "car received phone favorite");
@@ -76,21 +76,41 @@ public class SyncTest extends Instrumentation {
             rows.getJSONObject(1).getString("key").equals("tx_013"), "song order survived transfer");
       }
       TideSync.setSources(store,true);
-      TideSync.sync(store,context);
+      TideSync.sync(store);
       check(TideSync.status(store).getBoolean("hasReview"),"require explicit review");
       JSONArray pending=TideSync.pending(store);
-      check(pending.length()==3,"two sources available");
-      TideSync.approve(store,context,pending.getInt(0));
+      check(pending.length()==4,"all three sources available for review");
+      TideSync.approve(store,pending.getInt(0));
       JSONArray sources=store.sources.exportTideSources();
-      check(sources.length()==2 && sources.getJSONObject(0).getString("name").equals("示例音源一"),"source priority transferred");
-      check(sources.getJSONObject(0).getBoolean("enabled") && !sources.getJSONObject(1).getBoolean("enabled"),"source enabled states");
+      check(sources.length()==3 && sources.getJSONObject(0).getString("name").equals("初始化失败的音源")
+          && sources.getJSONObject(1).getString("name").equals("示例音源一"),"source priority transferred");
+      check(sources.getJSONObject(0).getBoolean("enabled") && sources.getJSONObject(1).getBoolean("enabled")
+          && !sources.getJSONObject(2).getBoolean("enabled"),"source enabled states");
       check(!TideSync.status(store).getBoolean("hasReview"),"review cleared");
+      java.util.List<LxSources.Candidate> candidates=store.sources.candidates("tx");
+      check(candidates.size()==2,"disabled source excluded");
+      JSONObject music=MusicStore.obj("source","tx","name","测试","singer","歌手","songmid","1");
+      try {
+        candidates.get(0).resolve(context,music,"auto");
+        throw new AssertionError("broken script must fail at playback");
+      } catch (java.io.IOException expected) {
+        check("脚本初始化失败".equals(expected.getMessage()),"readable script failure");
+      }
+      check("https://example.com/audio.mp3".equals(candidates.get(1).resolve(context,music,"auto")),
+          "next enabled source resolves the song");
+      check(store.sources.summary().getJSONObject(1).getJSONArray("platforms").getString(0).equals("tx")
+          && !TideSync.hasLocalSourceChanges(store),"playback capability discovery stays local");
+      JSONArray local=store.sources.summary();
+      check(store.sources.testSource(context,local.getJSONObject(0).getString("id")).equals(
+          "初始化失败的音源 · 初始化失败 · 脚本初始化失败"),"manual test identifies failing source");
+      check(store.sources.testSource(context,local.getJSONObject(2).getString("id")).equals(
+          "示例音源二 · 初始化成功") && !TideSync.hasLocalSourceChanges(store),"testing a disabled source keeps it disabled");
       TideSync.setSources(store,false);
-      store.sources.installTideSources(context,new JSONArray());
+      store.sources.installTideSources(new JSONArray());
       TideSync.setSources(store,true);
-      TideSync.syncSources(store,context);
+      TideSync.syncSources(store);
       check(!TideSync.status(store).getBoolean("hasReview") &&
-          store.sources.exportTideSources().length()==2,"same pairing restores remote sources without another review");
+          store.sources.exportTideSources().length()==3,"same pairing restores remote sources without another review");
       result.putString("stream","PASS "+getTargetContext().getPackageName()+" 配对、歌单、离线队列、音源审核和优先级");
       finish(-1,result);
     } catch(Throwable error) {

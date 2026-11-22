@@ -93,46 +93,38 @@ final class LxSources {
     return result;
   }
 
-  void installTideSources(Context context, JSONArray sources) throws Exception {
-    JSONArray before = exportTideSources();
-    JSONArray existing;
-    synchronized (this) { existing = rows(); }
+  synchronized void installTideSources(JSONArray sources) throws Exception {
+    // Sync copies the reviewed scripts. Playback discovers their capabilities on this device.
+    JSONArray existing = rows();
     JSONArray records = new JSONArray();
     android.content.SharedPreferences.Editor editor = prefs.edit();
     for (int i = 0; i < sources.length(); i++) {
       JSONObject remote = sources.getJSONObject(i);
       String script = remote.getString("script");
+      String comparable = script.trim();
       String url = remote.optString("url");
       if (!url.isEmpty()) LxEngine.sourceUrl(url);
       JSONObject previous = null;
       for (int j = 0; j < existing.length(); j++) {
         JSONObject row = existing.getJSONObject(j);
-        if (sameScript(script.trim(), row.getString("id"))) { previous = row; break; }
+        if (sameScript(comparable, row.getString("id"))) { previous = row; break; }
       }
       boolean enabled = remote.optBoolean("enabled");
       JSONObject record = previous == null
           ? obj("id", UUID.randomUUID().toString(), "revision", 1)
           : new JSONObject(previous.toString());
-      if (enabled && !record.has("qualities")) {
-        JSONObject info = LxEngine.run(context, script, null, "auto");
-        record.put("platforms", info.getJSONArray("platforms")).put("qualities", info.getJSONObject("qualities"));
-      }
       record.put("name", remote.getString("name")).put("version", LxEngine.tag(script, "version", ""))
           .put("enabled", enabled).put("revision", record.optInt("revision") + 1);
       if (url.isEmpty()) record.remove("url"); else record.put("url", url);
       records.put(record);
       editor.putString(key(record.getString("id")), script);
     }
-    synchronized (this) {
-      if (!before.toString().equals(exportTideSources().toString()))
-        throw new IOException("本机音源已变更，请重新确认");
-      for (int i = 0; i < existing.length(); i++) {
-        String id = existing.getJSONObject(i).getString("id");
-        if (find(records, "id", id) < 0) editor.remove(key(id));
-      }
-      if (!editor.putString(ROWS, records.toString()).commit())
-        throw new IOException("未能保存服务器音源");
+    for (int i = 0; i < existing.length(); i++) {
+      String id = existing.getJSONObject(i).getString("id");
+      if (find(records, "id", id) < 0) editor.remove(key(id));
     }
+    if (!editor.putString(ROWS, records.toString()).commit())
+      throw new IOException("未能保存服务器音源");
   }
 
   String install(Context context, JSONObject expected, String script, String fallback, String link)
@@ -322,23 +314,46 @@ final class LxSources {
     boolean supports(Context context, String platform, String quality) throws Exception {
       if ("auto".equals(quality)) return true;
       if (qualities == null) {
-        // Old installations only recorded platform names. Inspect on first use.
-        JSONObject info = LxEngine.run(context, script, null, "auto");
-        qualities = info.getJSONObject("qualities");
-        synchronized (LxSources.this) {
-          JSONArray latest = rows();
-          int index = find(latest, "id", row.getString("id"));
-          if (index >= 0
-              && latest.getJSONObject(index).optInt("revision") == row.optInt("revision")) {
-            latest
-                .getJSONObject(index)
-                .put("platforms", info.getJSONArray("platforms"))
-                .put("qualities", qualities);
-            prefs.edit().putString(ROWS, latest.toString()).apply();
-          }
-        }
+        rememberCapabilities(LxEngine.run(context, script, null, "auto"));
       }
       return includes(qualities.optJSONArray(platform), quality);
+    }
+
+    String resolve(Context context, JSONObject music, String quality) throws Exception {
+      JSONObject result = LxEngine.run(context, script, music, quality);
+      if (qualities == null) rememberCapabilities(result);
+      return result.getString("url");
+    }
+
+    private void rememberCapabilities(JSONObject info) throws JSONException {
+      qualities = info.getJSONObject("qualities");
+      synchronized (LxSources.this) {
+        JSONArray latest = rows();
+        int index = find(latest, "id", row.getString("id"));
+        if (index >= 0 && latest.getJSONObject(index).optInt("revision") == row.optInt("revision")) {
+          latest.getJSONObject(index).put("platforms", info.getJSONArray("platforms")).put("qualities", qualities);
+          prefs.edit().putString(ROWS, latest.toString()).apply();
+        }
+      }
+    }
+  }
+
+  String testSource(Context context, String id) throws Exception {
+    Candidate candidate;
+    synchronized (this) {
+      JSONObject row = target(id, "");
+      if (row == null) throw new IOException("音源已移除");
+      candidate = new Candidate(row);
+    }
+    try {
+      candidate.rememberCapabilities(LxEngine.run(context, candidate.script, null, "auto"));
+      return candidate.name + " · 初始化成功";
+    } catch (InterruptedException error) {
+      Thread.currentThread().interrupt();
+      throw error;
+    } catch (Exception error) {
+      return candidate.name + " · 初始化失败 · " +
+          (error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage());
     }
   }
 

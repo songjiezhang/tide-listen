@@ -31,6 +31,10 @@ const sources = ['示例音源一', '示例音源二'].map((name, index) => ({
     "lx.on(lx.EVENT_NAMES.request, async ()=>'https://example.com/audio.mp3');\n" +
     "lx.send(lx.EVENT_NAMES.inited,{sources:{tx:{type:'music',actions:['musicUrl'],qualitys:['128k']}}});",
 }))
+sources.unshift({
+  name: '初始化失败的音源', url: '', enabled: true,
+  script: '/**\n * @name 初始化失败的音源\n */\nPromise.reject(new Error("脚本初始化失败"));',
+})
 await send('/api/v1/sources', { revision: 0, operation: randomUUID(), data: sources }, 'PUT', headers)
 console.log(await code())
 console.log(await code())

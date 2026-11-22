@@ -359,6 +359,7 @@ function sourceCards() {
   return ordered.map((item, i) => '<article class="sourceCard"><div><strong>' + esc(item.name) +
     '</strong><small>' + esc([item.enabled ? '优先级 ' + (i + 1) : '', item.version, (item.platforms || []).map((p) => platforms[p] || p).join(' / ')].filter(Boolean).join(' · ')) +
     '</small></div><div class="actions">' + actions(item, item.enabled ? '已启用' : '已停用', 'enableSource') +
+    actions(item, '测试音源', 'testSource') +
     (item.linked ? actions(item, '从链接更新', 'updateSource') : '') +
     actions(item, item.linked ? '修改更新地址' : '绑定更新地址', 'editLink') +
     (item.enabled && i > 0 ? actions(item, '上移', 'raiseSource') : '') +

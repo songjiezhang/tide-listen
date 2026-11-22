@@ -65,7 +65,7 @@ final class LxDataSource implements DataSource {
         checkNetwork();
         try {
           if (!candidate.supports(context, platform, quality)) continue;
-          String url = LxEngine.run(context, candidate.script, music, quality).getString("url");
+          String url = candidate.resolve(context, music, quality);
           checkNetwork();
           long length = upstream.open(spec.withUri(Uri.parse(url)));
           if (length == 0 || isErrorPage(upstream.getResponseHeaders()))

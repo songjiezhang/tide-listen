@@ -595,6 +595,9 @@ public final class PlayerActivity extends Activity {
       case "editLink":
         sourceUrl(store.sources.target(arg, ""));
         break;
+      case "testSource":
+        runJob("正在测试音源初始化…", () -> store.sources.testSource(this, arg), true);
+        break;
       case "updateSource":
         JSONObject target = store.sources.target(arg, "");
         if (target.optString("url").isEmpty()) sourceUrl(target);
@@ -938,7 +941,7 @@ public final class PlayerActivity extends Activity {
         .setMessage(message.toString())
         .setNegativeButton("取消", null)
         .setPositiveButton("应用", (dialog, which) ->
-            syncSettings("正在验证音源", () -> TideSync.approve(store, this, revision)))
+            syncSettings("正在同步音源", () -> TideSync.approve(store, revision)))
         .show();
   }
 
@@ -1071,7 +1074,7 @@ public final class PlayerActivity extends Activity {
         }
         try {
           if (sources || checkSources && TideSync.hasLocalSourceChanges(store)) {
-            TideSync.syncSources(store, this);
+            TideSync.syncSources(store);
             if (!retryLists) message = "汐听同步已完成";
           }
         } catch (Exception error) {
