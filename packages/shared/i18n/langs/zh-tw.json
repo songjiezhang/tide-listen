@@ -515,7 +515,7 @@
   "settings.common.transparent_window_desc": "關閉後將使用系統窗口圓角及陰影樣式，重啟軟件後生效",
   "settings.dataSync": "資料同步",
   "settings.dataSync.tide_sources_enable": "同步音源",
-  "settings.dataSync.tide_sources_review": "確認後依伺服器清單取代本機音源。",
+  "settings.dataSync.tide_sources_review": "首次確認會以伺服器清單取代本機音源。之後會自動同步此配對帳號的音源變更。",
   "settings.dataSync.webdav": "WebDAV",
   "settings.dataSync.webdav_debug_enable": "記錄調試日誌",
   "settings.dataSync.webdav_enable": "啟用同步",

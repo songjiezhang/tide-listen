@@ -26,6 +26,7 @@ interface Connection {
   library: string
   started: boolean
   sources: boolean
+  sourcesTrusted?: boolean
   listRevision?: number
   sourceRevision?: number
   sourceHash?: string
@@ -187,7 +188,10 @@ export async function startTideSync() {
   try {
     const saved = JSON.parse(await fs.readFile(fileName(), 'utf8')) as { connection?: Connection; base?: Library }
     if (saved.connection) connection = {
-      ...saved.connection, token: safeStorage.decryptString(Buffer.from(saved.connection.token, 'base64')),
+      ...saved.connection,
+      // Before first-review consent was stored, a revision was saved only after a successful sync.
+      sourcesTrusted: saved.connection.sourcesTrusted ?? (saved.connection.sources && saved.connection.sourceRevision !== undefined),
+      token: safeStorage.decryptString(Buffer.from(saved.connection.token, 'base64')),
     }
     base = saved.base
   } catch (error) {
@@ -244,26 +248,34 @@ async function syncLists(scope: Connection, migrating?: Library) {
 
 async function syncSources(scope: Connection, approve?: number) {
   const remote = await get<Source[]>(scope, 'sources')
-  const local = await workers.extensionService.exportTideSources()
-  const localHash = digest(local)
-  let result = remote
-  if (approve !== undefined) {
-    if (approve !== remote.revision || pendingRevision !== remote.revision) throw Error('服务器音源已变更，请重新查看')
-    await workers.extensionService.installTideSources(remote.data ?? [])
-    scope.sourceHash = digest(await workers.extensionService.exportTideSources())
-  } else if (remote.data && digest(remote.data) === localHash) {
-    scope.sourceHash = localHash
-  } else if (remote.revision === 0 || scope.sourceRevision === remote.revision) {
-    if (scope.sourceHash !== localHash && (local.length || remote.data)) {
-      result = { ...(await put(scope, 'sources', remote.revision, local)), data: local }
-    }
-    scope.sourceHash = localHash
-  } else {
+  if (!Number.isSafeInteger(remote.revision) || remote.revision < 0 ||
+      !(Array.isArray(remote.data) || (remote.revision === 0 && remote.data === null))) {
+    throw Error('服务器音源列表格式无效')
+  }
+  if (approve !== undefined && (scope.sourcesTrusted || approve !== pendingRevision || approve !== remote.revision)) {
+    throw Error('服务器音源已变更，请重新查看')
+  }
+  if (!scope.sourcesTrusted && approve === undefined && remote.revision > 0 && remote.data) {
     pendingRevision = remote.revision
-    pendingSources = remote.data?.map(({ name, enabled }) => ({ name, enabled })) ?? []
+    pendingSources = remote.data.map(({ name, enabled }) => ({ name, enabled }))
     return
   }
-  scope.sourceRevision = result.revision
+
+  const local = await workers.extensionService.exportTideSources()
+  let localHash = digest(local)
+  let revision = remote.revision
+  const sameSources = remote.data !== null && digest(remote.data) === localHash
+  if (!sameSources) {
+    if (remote.data && revision > 0 && (approve !== undefined || revision !== scope.sourceRevision)) {
+      await workers.extensionService.installTideSources(remote.data)
+      localHash = digest(await workers.extensionService.exportTideSources())
+    } else if (scope.sourceHash !== localHash && (local.length > 0 || remote.data)) {
+      revision = (await put(scope, 'sources', revision, local)).revision
+    }
+  }
+  scope.sourceHash = localHash
+  scope.sourceRevision = revision
+  scope.sourcesTrusted = true
   pendingRevision = undefined
   pendingSources = undefined
   await save()
@@ -309,7 +321,7 @@ async function operation(options: AnyListen.IPCSync.TideOptions): Promise<AnyLis
       const paired = await request<Pick<Connection, 'token' | 'account' | 'library'>>(url, 'pair', 'POST', undefined, {
         code: options.code, name: '汐听桌面 · ' + hostname(),
       })
-      connection = { ...paired, url, started: false, sources: false }
+      connection = { ...paired, url, started: false, sources: false, sourcesTrusted: false }
       base = undefined
       message = '已配对，请选择怎样同步现有歌单'
       await save()
@@ -368,6 +380,7 @@ async function operation(options: AnyListen.IPCSync.TideOptions): Promise<AnyLis
     }
     case 'sources':
       if (!scope?.started) throw Error('请先开启歌单同步')
+      if (scope.sources === options.enabled) break
       if (options.enabled) await workers.extensionService.exportTideSources()
       scope.sources = options.enabled
       if (!options.enabled) {

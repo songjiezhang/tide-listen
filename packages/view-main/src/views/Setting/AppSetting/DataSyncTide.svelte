@@ -84,7 +84,7 @@
           <ul>{#each info.pendingSources as source}<li>{source.name} · {source.enabled ? '启用' : '停用'}</li>{/each}</ul>
           <button disabled={working} onclick={async () => {
             const revision = info?.pendingRevision
-            if (revision !== undefined && await showSimpleConfirmModal('确认信任这些脚本并应用服务器音源？')) {
+            if (revision !== undefined && await showSimpleConfirmModal('信任此配对账号并应用服务器音源？后续音源变更会自动同步。')) {
               void apply({ action: 'approve', revision })
             }
           }}>确认并应用音源</button>

@@ -515,7 +515,7 @@
   "settings.common.transparent_window_desc": "After closing, the system window rounded corners and shadow styles will be used, and the software will take effect after restarting.",
   "settings.dataSync": "Data synchronization",
   "settings.dataSync.tide_sources_enable": "Sync music sources",
-  "settings.dataSync.tide_sources_review": "Confirm to replace your local music sources with the server list.",
+  "settings.dataSync.tide_sources_review": "Approving this paired account replaces your local sources with its list. Future source changes will sync automatically.",
   "settings.dataSync.webdav": "WebDAV",
   "settings.dataSync.webdav_debug_enable": "Record debug log",
   "settings.dataSync.webdav_enable": "Enable sync",
