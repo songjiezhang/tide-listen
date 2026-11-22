@@ -17,7 +17,7 @@ import org.json.*;
 
 /** Manual updates for the installed TideListen flavor. */
 final class AppUpdater {
-  static final int INSTALL_PERMISSION = 42;
+  static final int INSTALL_PERMISSION = 42, INSTALL_RESULT = 43;
   static final String REPOSITORY = "https://github.com/songjiezhang/tide-listen";
   private static final String API =
       "https://api.github.com/repos/songjiezhang/tide-listen/releases/latest";
@@ -30,13 +30,12 @@ final class AppUpdater {
 
   AppUpdater(Activity activity, String savedName) {
     this.activity = activity;
-    if (savedName != null && savedName.matches("update-[0-9]+\\.apk")) {
-      pending = new File(directory(), savedName);
-    }
+    pending = UpdatePackages.open(activity, savedName);
   }
 
-  private File directory() {
-    return new File(activity.getCacheDir(), "app-updates");
+  void finishInstall() {
+    if (pending != null) pending.delete();
+    pending = null;
   }
 
   String pendingName() {
@@ -52,13 +51,13 @@ final class AppUpdater {
   }
 
   void check() {
-    if (active != null) {
+    if (active != null || pending != null) {
       message("正在检查或下载安装包");
       return;
     }
     message("正在检查汐听更新…");
     fetch(
-        API,
+        API, null,
         response -> {
           JSONObject release = new JSONObject(response.string());
           String tag = release.getString("tag_name");
@@ -102,7 +101,7 @@ final class AppUpdater {
     Runnable read(ResponseBody body) throws Exception;
   }
 
-  private void fetch(String url, ReadResponse reader) {
+  private void fetch(String url, File temporary, ReadResponse reader) {
     Call call =
         HTTP.newCall(
             new Request.Builder()
@@ -115,9 +114,13 @@ final class AppUpdater {
           private void finish(Runnable result) {
             activity.runOnUiThread(
                 () -> {
-                  if (active != call) return;
-                  active = null;
-                  if (!activity.isDestroyed() && !activity.isFinishing()) result.run();
+                  try {
+                    if (active != call) return;
+                    active = null;
+                    if (!activity.isDestroyed() && !activity.isFinishing()) result.run();
+                  } finally {
+                    if (temporary != null) temporary.delete();
+                  }
                 });
           }
 
@@ -147,51 +150,57 @@ final class AppUpdater {
   }
 
   private void download(String url, long expected, String hash, String version) {
+    if (active != null || pending != null) return;
+    File tmp;
+    try {
+      tmp = UpdatePackages.create(activity);
+    } catch (IOException e) {
+      message("更新失败 · " + e.getMessage());
+      return;
+    }
     message("正在下载安装包，完成后将打开系统安装界面");
     fetch(
-        url,
+        url, tmp,
         body -> {
-          File dir = directory();
-          if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("无法创建更新目录");
-          File tmp = File.createTempFile("update-", ".apk", dir);
-          boolean verified = false;
-          try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            long total = 0;
-            try (InputStream in = body.byteStream();
-                OutputStream out = new FileOutputStream(tmp)) {
-              byte[] buffer = new byte[65536];
-              int n;
-              while ((n = in.read(buffer)) != -1) {
-                total += n;
-                if (total > expected) throw new IOException("安装包长度异常");
-                out.write(buffer, 0, n);
-                digest.update(buffer, 0, n);
-              }
+          MessageDigest digest = MessageDigest.getInstance("SHA-256");
+          long total = 0;
+          try (InputStream in = body.byteStream();
+              OutputStream out = new FileOutputStream(tmp)) {
+            byte[] buffer = new byte[65536];
+            int n;
+            while ((n = in.read(buffer)) != -1) {
+              total += n;
+              if (total > expected) throw new IOException("安装包长度异常");
+              out.write(buffer, 0, n);
+              digest.update(buffer, 0, n);
             }
-            if (total != expected
-                || !okio.ByteString.of(digest.digest()).hex().equalsIgnoreCase(hash))
-              throw new IOException("安装包完整性校验失败");
-            PackageInfo info =
-                activity.getPackageManager().getPackageArchiveInfo(tmp.getAbsolutePath(), 0);
-            if (info == null
-                || !activity.getPackageName().equals(info.packageName)
-                || !version.equals(info.versionName)
-                || info.versionCode <= BuildConfig.VERSION_CODE)
-              throw new IOException("安装包与当前应用或版本不匹配");
-            verified = true;
-            return () -> {
-              pending = tmp;
-              install(true);
-            };
-          } finally {
-            if (!verified) tmp.delete();
           }
+          if (total != expected
+              || !okio.ByteString.of(digest.digest()).hex().equalsIgnoreCase(hash))
+            throw new IOException("安装包完整性校验失败");
+          PackageInfo info =
+              activity.getPackageManager().getPackageArchiveInfo(tmp.getAbsolutePath(), 0);
+          if (info == null
+              || !activity.getPackageName().equals(info.packageName)
+              || !version.equals(info.versionName)
+              || info.versionCode <= BuildConfig.VERSION_CODE)
+            throw new IOException("安装包与当前应用或版本不匹配");
+          return () -> {
+            try {
+              pending = UpdatePackages.handOff(activity, tmp);
+              install(true);
+            } catch (IOException e) {
+              message("更新失败 · " + e.getMessage());
+            }
+          };
         });
   }
 
   void install(boolean askPermission) {
-    if (pending == null || !pending.isFile()) return;
+    if (pending == null || !pending.isFile()) {
+      finishInstall();
+      return;
+    }
     try {
       if (Build.VERSION.SDK_INT >= 26
           && !activity.getPackageManager().canRequestPackageInstalls()) {
@@ -201,17 +210,22 @@ final class AppUpdater {
                   Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                   Uri.parse("package:" + activity.getPackageName())),
               INSTALL_PERMISSION);
-        } else message("需要允许此应用安装更新");
+        } else {
+          finishInstall();
+          message("需要允许此应用安装更新");
+        }
         return;
       }
       Uri apk =
           FileProvider.getUriForFile(activity, activity.getPackageName() + ".updates", pending);
-      activity.startActivity(
-          new Intent(Intent.ACTION_VIEW)
+      activity.startActivityForResult(
+          new Intent(Intent.ACTION_INSTALL_PACKAGE)
               .setDataAndType(apk, "application/vnd.android.package-archive")
-              .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));
-      pending = null;
+              .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+              .putExtra(Intent.EXTRA_RETURN_RESULT, true),
+          INSTALL_RESULT);
     } catch (RuntimeException e) {
+      finishInstall();
       message("无法打开系统安装器 · " + e.getMessage());
     }
   }

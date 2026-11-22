@@ -85,6 +85,12 @@ public class SyncTest extends Instrumentation {
       check(sources.length()==2 && sources.getJSONObject(0).getString("name").equals("示例音源一"),"source priority transferred");
       check(sources.getJSONObject(0).getBoolean("enabled") && !sources.getJSONObject(1).getBoolean("enabled"),"source enabled states");
       check(!TideSync.status(store).getBoolean("hasReview"),"review cleared");
+      TideSync.setSources(store,false);
+      store.sources.installTideSources(context,new JSONArray());
+      TideSync.setSources(store,true);
+      TideSync.syncSources(store,context);
+      check(!TideSync.status(store).getBoolean("hasReview") &&
+          store.sources.exportTideSources().length()==2,"same pairing restores remote sources without another review");
       result.putString("stream","PASS "+getTargetContext().getPackageName()+" 配对、歌单、离线队列、音源审核和优先级");
       finish(-1,result);
     } catch(Throwable error) {

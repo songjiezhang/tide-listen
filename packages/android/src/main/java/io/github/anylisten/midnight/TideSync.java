@@ -24,6 +24,7 @@ final class TideSync {
   private static final String SOURCES = "tide.sources";
   private static final String SOURCE_REV = "tide.sourceRev";
   private static final String SOURCE_HASH = "tide.sourceHash";
+  private static final String SOURCE_TRUSTED = "tide.sourcesTrusted";
   private static final String PENDING = "tide.sourcePending";
 
   private static final class Conflict extends IOException {}
@@ -59,18 +60,25 @@ final class TideSync {
     return store.prefs.getBoolean(SOURCES, false);
   }
 
+  private static boolean sourcesTrusted(MusicStore store) {
+    // Older clients saved a revision after syncing, but had no separate first-review flag.
+    return store.prefs.getBoolean(SOURCE_TRUSTED, sourcesEnabled(store)
+        && (store.prefs.contains(SOURCE_REV) || !store.prefs.contains(PENDING)));
+  }
+
   static boolean hasLocalSourceChanges(MusicStore store) throws Exception {
     return sourcesEnabled(store) && !digest(store.sources.exportTideSources())
         .equals(store.prefs.getString(SOURCE_HASH, ""));
   }
 
   static JSONObject status(MusicStore store) throws JSONException {
+    boolean review = pending(store).length() > 0;
     return obj(
         "address", store.prefs.getString(ADDRESS, ""),
         "account", store.prefs.getString(ACCOUNT, ""),
         "sources", store.prefs.getBoolean(SOURCES, false),
-        "pending", new JSONArray(store.prefs.getString(PENDING, "[]")).length() > 0,
-        "hasReview", store.prefs.contains(PENDING));
+        "pending", review,
+        "hasReview", review);
   }
 
   private static String serverUrl(String input) throws IOException {
@@ -156,7 +164,7 @@ final class TideSync {
     synchronized (DavSync.class) {
       if (!store.prefs.edit()
           .remove(ADDRESS).remove(TOKEN).remove(ACCOUNT).remove(LIBRARY)
-          .remove(SOURCES).remove(SOURCE_REV).remove(SOURCE_HASH).remove(PENDING)
+          .remove(SOURCES).remove(SOURCE_TRUSTED).remove(SOURCE_REV).remove(SOURCE_HASH).remove(PENDING)
           .remove("lastSync").commit()) throw new IOException("未能移除本地凭据");
       store.desktop.loadCachedOnce();
       return "已断开汐听同步";
@@ -166,7 +174,8 @@ final class TideSync {
   static String setSources(MusicStore store, boolean value) throws Exception {
     synchronized (DavSync.class) {
       if (!enabled(store)) throw new IOException("请先配对汐听同步服务");
-      if (!store.prefs.edit().putBoolean(SOURCES, value)
+      if (value == sourcesEnabled(store)) return value ? "已开启音源同步" : "已关闭音源同步";
+      if (!store.prefs.edit().putBoolean(SOURCE_TRUSTED, sourcesTrusted(store)).putBoolean(SOURCES, value)
           .remove(SOURCE_REV).remove(SOURCE_HASH).remove(PENDING).commit())
         throw new IOException("音源同步设置未能保存");
       return value ? "已开启音源同步" : "已关闭音源同步";
@@ -174,7 +183,7 @@ final class TideSync {
   }
 
   static JSONArray pending(MusicStore store) throws JSONException {
-    return new JSONArray(store.prefs.getString(PENDING, "[]"));
+    return sourcesTrusted(store) ? new JSONArray() : new JSONArray(store.prefs.getString(PENDING, "[]"));
   }
 
   static String approve(MusicStore store, Context context, int revision) throws Exception {
@@ -255,20 +264,15 @@ final class TideSync {
     JSONObject snapshot = get("sources");
     int revision = snapshot.getInt("revision");
     JSONArray remote = snapshot.optJSONArray("data");
+    if (revision < 0 || (remote == null && !(revision == 0 && snapshot.has("data") && snapshot.isNull("data"))))
+      throw new IOException("服务器音源列表格式无效");
     JSONArray local = store.sources.exportTideSources();
     String fingerprint = digest(local);
     if (approve != null) {
       JSONArray review = pending(store);
       if (approve != revision || review.length() == 0 || review.getInt(0) != revision)
         throw new IOException("服务器音源已变更，请重新查看");
-      store.sources.installTideSources(context, remote == null ? new JSONArray() : remote);
-      fingerprint = digest(store.sources.exportTideSources());
-    } else if (remote != null && fingerprint.equals(digest(remote))) {
-      // Both endpoints already have this revision.
-    } else if (revision == 0 || revision == store.prefs.getInt(SOURCE_REV, -1)) {
-      if (!fingerprint.equals(store.prefs.getString(SOURCE_HASH, "")) && (local.length() > 0 || remote != null))
-        revision = put("sources", revision, local);
-    } else {
+    } else if (!sourcesTrusted(store) && revision > 0) {
       JSONArray review = new JSONArray().put(revision);
       for (int i = 0; remote != null && i < remote.length(); i++) {
         JSONObject row = remote.getJSONObject(i);
@@ -277,7 +281,16 @@ final class TideSync {
       store.prefs.edit().putString(PENDING, review.toString()).apply();
       return;
     }
-    store.prefs.edit().putInt(SOURCE_REV, revision)
+    if (remote != null && fingerprint.equals(digest(remote))) {
+      // Both endpoints already have this revision.
+    } else if (approve == null && (revision == 0 || revision == store.prefs.getInt(SOURCE_REV, -1))) {
+      if (!fingerprint.equals(store.prefs.getString(SOURCE_HASH, "")) && (local.length() > 0 || remote != null))
+        revision = put("sources", revision, local);
+    } else {
+      store.sources.installTideSources(context, remote == null ? new JSONArray() : remote);
+      fingerprint = digest(store.sources.exportTideSources());
+    }
+    store.prefs.edit().putBoolean(SOURCE_TRUSTED, true).putInt(SOURCE_REV, revision)
         .putString(SOURCE_HASH, fingerprint).remove(PENDING).apply();
   }
 }

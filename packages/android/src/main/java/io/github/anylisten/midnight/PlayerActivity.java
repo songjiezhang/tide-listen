@@ -737,6 +737,10 @@ public final class PlayerActivity extends Activity {
   @Override
   protected void onActivityResult(int kind, int result, Intent data) {
     super.onActivityResult(kind, result, data);
+    if (kind == AppUpdater.INSTALL_RESULT) {
+      appUpdater.finishInstall();
+      return;
+    }
     if (kind == AppUpdater.INSTALL_PERMISSION) {
       appUpdater.install(false);
       return;
@@ -925,7 +929,7 @@ public final class PlayerActivity extends Activity {
   private void approveTideSources() throws JSONException {
     JSONArray pending = TideSync.pending(store);
     if (pending.length() == 0) return;
-    StringBuilder message = new StringBuilder("确认信任以下脚本并用服务器列表替换本机音源？\n");
+    StringBuilder message = new StringBuilder("信任此同步账号的音源？确认后会应用服务器列表，后续音源变更将自动同步。\n");
     for (int i = 1; i < pending.length(); i++) message.append("\n").append(pending.getString(i));
     if (pending.length() == 1) message.append("\n服务器音源列表为空");
     int revision = pending.getInt(0);
