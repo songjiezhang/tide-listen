@@ -24,6 +24,7 @@ import org.json.*;
 
 public final class PlayerActivity extends Activity {
   private static final int SCRIPT = 11, BACKUP = 12, AUDIO = 13;
+  private static final String PLAYER_PAGE = "file:///android_asset/index.html";
   private static final String PROCESS_INSTANCE = UUID.randomUUID().toString();
   private final ExecutorService worker = Executors.newSingleThreadExecutor();
   private final ExecutorService catalogWorker = Executors.newFixedThreadPool(2);
@@ -88,17 +89,17 @@ public final class PlayerActivity extends Activity {
     root.requestApplyInsets();
     page.setBackgroundColor(0xff101117);
     WebSettings w = page.getSettings();
+    // The bundled player uses the App bridge. Direct network loads and navigation are blocked.
+    //noinspection SetJavaScriptEnabled
     w.setJavaScriptEnabled(true);
     w.setAllowFileAccess(false);
     w.setAllowContentAccess(false);
     w.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-    w.setBlockNetworkLoads(false);
+    w.setBlockNetworkLoads(true);
     page.setWebViewClient(
         new WebViewClient() {
           @Override
           public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest req) {
-            String scheme = req.getUrl().getScheme();
-            if ("file".equals(scheme)) return null;
             WebResourceResponse art =
                 CatalogEngine.cover(PlayerActivity.this, req.getUrl().toString());
             return art != null
@@ -119,6 +120,7 @@ public final class PlayerActivity extends Activity {
 
           @Override
           public void onPageFinished(WebView view, String url) {
+            if (!PLAYER_PAGE.equals(url)) return;
             ready = true;
             refresh();
             transport();
@@ -126,7 +128,7 @@ public final class PlayerActivity extends Activity {
         });
     page.addJavascriptInterface(new Actions(), "App");
     WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
-    page.loadUrl("file:///android_asset/index.html");
+    page.loadUrl(PLAYER_PAGE);
     worker.execute(
         () -> {
           try {
