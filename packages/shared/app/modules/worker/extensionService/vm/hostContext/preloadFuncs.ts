@@ -1,3 +1,5 @@
+import { LX_SOURCE_LOADER } from '@any-listen/common/command'
+
 import { contextState } from './state'
 
 export const callPreload = <T extends keyof AnyListen.ExtensionVM.PreloadCallActions>(
@@ -67,6 +69,9 @@ export const listProviderAction = async <T extends keyof AnyListen.IPCExtension.
 export const sendConfigUpdatedEvent = (extId: string, keys: string[], config: Record<string, any>) => {
   const targetContext = contextState.vmContexts.get(extId)
   if (!targetContext) throw new Error(`context not found: ${extId}`)
+  if (import.meta.env.VITE_IS_DESKTOP && extId === LX_SOURCE_LOADER && keys.includes('enabledScripts')) {
+    config = { ...config, enabledScripts: [] }
+  }
   void targetContext.preloadFuncs.configurationChanged(keys, config)
 }
 

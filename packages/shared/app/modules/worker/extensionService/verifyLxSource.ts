@@ -2,22 +2,42 @@ import { createMessage2Call } from 'message2call'
 
 import { request, type Options } from '@any-listen/nodejs/request'
 
+import { lxScriptErrors } from './errorHandler'
+import { contextState } from './vm/hostContext/state'
 import { i18n } from './i18n'
 import { createIsolateFuncs } from './vm/hostContext/apis/isolateContext'
 
-// Use the installed loader's own LX preload. The probe cannot add a provider to the active playback list.
-export async function verifyLxSource(extension: AnyListen.Extension.Extension, info: { name: string }, code: string) {
+type Platforms = Record<string, string[]>
+interface LxRemote {
+  setupEnv: (info: { name: string }, code: string) => Promise<void>
+  setEnabledSourceLogout: (enabled: boolean) => Promise<void>
+  getMusicUrl: (song: Record<string, unknown>, quality: string) => Promise<string>
+}
+
+export async function openLxSource(extension: AnyListen.Extension.Extension, info: { name: string }, code: string,
+  log = false, showUpdateAlert?: (message: string) => void) {
+  if (!extension.grant.includes('internet') || !extension.grant.includes('isolate_context')) throw new Error(i18n.t('lx_link_loader_unavailable'))
   const controller = new AbortController()
-  const ready = Promise.withResolvers<boolean>()
+  const ready = Promise.withResolvers<Platforms>()
+  const failure = Promise.withResolvers<Error>()
+  const fail = (reason: unknown) => {
+    const message = typeof reason === 'string' ? reason : (reason as Error | null)?.message
+    failure.resolve(new Error(message || i18n.t('lx_link_init_failed')))
+  }
+  const guarded = <T>(task: () => Promise<T>) => Promise.race([
+    lxScriptErrors.run(fail, task), failure.promise.then((error) => { throw error }),
+  ])
   const ignore = () => {}
   const api = {
-    log: ignore,
-    debug: ignore,
-    warn: ignore,
-    error: ignore,
-    showUpdateAlert: ignore,
-    inited(sources: Record<string, string[]> | null, ok: boolean) {
-      ready.resolve(ok && !!sources && Object.values(sources).some((v) => Array.isArray(v) && v.length > 0))
+    log: log ? console.log : ignore,
+    debug: log ? console.debug : ignore,
+    warn: log ? console.warn : ignore,
+    error: log ? console.error : ignore,
+    showUpdateAlert: showUpdateAlert ?? ignore,
+    inited(sources: Platforms | null, ok?: boolean, message?: string) {
+      if (ok === false || !sources || !Object.values(sources).some((v) => Array.isArray(v) && v.length)) {
+        fail(message)
+      } else ready.resolve(sources)
     },
     async request({
       url,
@@ -75,25 +95,45 @@ export async function verifyLxSource(extension: AnyListen.Extension.Extension, i
     },
   })
   const id = await isolate.createIsolateContext()
-  const rpc = createMessage2Call<{ setupEnv: (info: { name: string }, code: string) => Promise<void> }>({
+  const rpc = createMessage2Call<LxRemote>({
     exposeObj: api,
-    timeout: 15000,
+    timeout: 25000,
     sendMessage(data) {
       if (!controller.signal.aborted) {
-        void isolate.sendMessageToIsolateContext(id, JSON.stringify(data)).catch(() => ready.resolve(false))
+        void isolate.sendMessageToIsolateContext(id, JSON.stringify(data)).catch(fail)
       }
     },
   })
-  const timer = setTimeout(() => ready.resolve(false), 15000)
-  try {
-    await isolate.runFileInIsolateContext(id, '@root/resources/isolate-preload.js')
-    await rpc.remote.setupEnv(info, code)
-    await isolate.runInIsolateContext(id, code)
-    if (!(await ready.promise)) throw new Error(i18n.t('lx_link_init_failed'))
-  } finally {
-    clearTimeout(timer)
+  const hooks = contextState.vmContexts.get(extension.id)?.unsubscribeEvents
+  const onUnload = () => { fail(i18n.t('lx_link_loader_unavailable')); controller.abort() }
+  hooks?.push(onUnload)
+  const close = async () => {
+    const index = hooks?.indexOf(onUnload) ?? -1
+    if (index >= 0) hooks!.splice(index, 1)
     controller.abort()
     rpc.destroy()
     await isolate.destroyIsolateContext(id)
   }
+  const timer = setTimeout(() => fail(i18n.t('lx_source_timeout')), 15000)
+  try {
+    const platforms = await guarded(async () => {
+      await isolate.runFileInIsolateContext(id, '@root/resources/isolate-preload.js')
+      if (log) await rpc.remote.setEnabledSourceLogout(true)
+      await rpc.remote.setupEnv(info, code)
+      await isolate.runInIsolateContext(id, code)
+      return ready.promise
+    })
+    return { platforms, close, getMusicUrl: (song: Record<string, unknown>, quality: string) =>
+      guarded(() => rpc.remote.getMusicUrl(song, quality)) }
+  } catch (error) {
+    await close()
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+export async function verifyLxSource(extension: AnyListen.Extension.Extension, info: { name: string }, code: string) {
+  const session = await openLxSource(extension, info, code)
+  await session.close()
 }

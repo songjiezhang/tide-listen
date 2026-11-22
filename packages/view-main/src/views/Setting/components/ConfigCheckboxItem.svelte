@@ -54,6 +54,7 @@
             <Btn min onclick={async () => executeCommand(LX_SOURCE_COMMANDS.down, checkboxItem.value)}>{$t('lx_source_down')}</Btn>
           {/if}
         {/if}
+        <Btn min onclick={async () => executeCommand(LX_SOURCE_COMMANDS.test, checkboxItem.value)}>{$t('lx_source_test')}</Btn>
         {#if hasLink(checkboxItem)}
           <Btn min onclick={async () => executeCommand(LX_SOURCE_COMMANDS.update, checkboxItem.value)}>{$t('lx_link_update')}</Btn>
         {/if}

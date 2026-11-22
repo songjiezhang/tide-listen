@@ -1,6 +1,8 @@
 package io.github.anylisten.midnight;
 
+import android.app.PendingIntent;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Handler;
@@ -91,7 +93,13 @@ public final class PlaybackService extends MediaSessionService {
         true);
     player.setHandleAudioBecomingNoisy(true);
     prefs = store.prefs;
-    MediaSession.Builder builder = new MediaSession.Builder(this, player);
+    Intent openPlayer = new Intent(this, PlayerActivity.class)
+        .setAction(Intent.ACTION_MAIN)
+        .addCategory(Intent.CATEGORY_LAUNCHER)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+    PendingIntent sessionActivity = PendingIntent.getActivity(this, 0, openPlayer,
+        PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+    MediaSession.Builder builder = new MediaSession.Builder(this, player).setSessionActivity(sessionActivity);
     savedQueue = getSharedPreferences(RESUME_QUEUE, MODE_PRIVATE);
     savedProgress = getSharedPreferences("playback-progress", MODE_PRIVATE);
     if (BuildConfig.FLAVOR.equals("dashboard")) {

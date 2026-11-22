@@ -3,6 +3,7 @@ export const LX_SOURCE_MAX_ENABLED = 5
 export const LX_SOURCE_COMMANDS = {
   add: `${LX_SOURCE_LOADER}:addRemoteSource`,
   bind: 'desktop.lxSource.bind',
+  test: 'desktop.lxSource.test',
   update: 'desktop.lxSource.update',
   up: 'desktop.lxSource.up',
   down: 'desktop.lxSource.down',

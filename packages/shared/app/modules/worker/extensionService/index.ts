@@ -1,3 +1,4 @@
+import { LX_SOURCE_LOADER } from '@any-listen/common/command'
 import { setGHMirrorHosts } from '@any-listen/nodejs/mirrorReuqest'
 import { setProxyByHost } from '@any-listen/nodejs/request'
 
@@ -27,7 +28,7 @@ import {
   getOnlineTags,
   initOnlineList,
 } from './onlineExtension'
-import { exportTideSources, installTideSources, manageLinkedLxSource } from './linkedLxSources'
+import { exportTideSources, installTideSources, manageLinkedLxSource, resolveLxMusicUrl } from './linkedLxSources'
 import { resetI18n } from './onlineExtension/i18n'
 import {
   buildExtensionSettings,
@@ -166,6 +167,9 @@ const extension = {
   ): Promise<Awaited<ReturnType<AnyListen.IPCExtension.ResourceAction[T]>>> {
     const context = internalExtensionContextState.contexts.get(params.extensionId)
     if (context) return context.context.resourceAction!(action, params)
+    if (import.meta.env.VITE_IS_DESKTOP && params.extensionId === LX_SOURCE_LOADER && action === 'musicUrl') {
+      return await resolveLxMusicUrl(params as AnyListen.IPCExtension.MusicUrlParams) as Awaited<ReturnType<AnyListen.IPCExtension.ResourceAction[T]>>
+    }
     return resourceAction(action, params)
   },
   async listProviderAction<T extends keyof AnyListen.IPCExtension.ListProviderAction>(
