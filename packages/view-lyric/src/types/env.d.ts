@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/triple-slash-reference */
 /// <reference types="svelte" />
 /// <reference types="vite/client" />
+/// <reference path="../../node_modules/vite-plugin-svg-icons/client.d.ts" />
 
 interface ImportMetaEnv {
   readonly VITE_IS_WEB?: string

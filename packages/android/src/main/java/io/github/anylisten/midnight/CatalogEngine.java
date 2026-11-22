@@ -242,28 +242,69 @@ final class CatalogEngine {
     }
   }
 
-  static String embeddedCover(Context context, android.net.Uri uri) throws IOException {
+  private static Cover embeddedPicture(Context context, android.net.Uri uri) throws IOException {
+    if (!"content".equals(uri.getScheme())) return null;
     android.media.MediaMetadataRetriever media = new android.media.MediaMetadataRetriever();
     try {
       media.setDataSource(context, uri);
       byte[] bytes = media.getEmbeddedPicture();
-      if (bytes == null || bytes.length > COVER_SOURCE_LIMIT) return "";
-      Cover image = decodeCover(bytes, false);
-      return "data:" + image.type + ";base64," +
-          android.util.Base64.encodeToString(image.bytes, android.util.Base64.NO_WRAP);
+      if (bytes == null || bytes.length > COVER_SOURCE_LIMIT) return null;
+      return decodeCover(bytes, false);
     } finally {
       media.release();
     }
   }
 
+  static String embeddedCover(Context context, android.net.Uri uri) throws IOException {
+    Cover image = embeddedPicture(context, uri);
+    return image == null ? "" : "data:" + image.type + ";base64," +
+        Base64.encodeToString(image.bytes, Base64.NO_WRAP);
+  }
+
+  static String pictureUrl(Context context, JSONObject song) throws Exception {
+    String platform = song.getJSONObject("meta").optString("source");
+    if (!MusicStore.PLATFORMS.contains(platform)) return "";
+    return run(context, obj("action", "picture", "platform", platform, "musicInfo", song))
+        .optString("url");
+  }
+
+  /** Encoded artwork for the system media session, small enough to travel with one item. */
+  static byte[] sessionArtwork(Context context, MusicStore store, JSONObject track) throws Exception {
+    Cover cover;
+    if ("local".equals(track.optString("source"))) {
+      cover = embeddedPicture(context, android.net.Uri.parse(track.getString("uri")));
+    } else {
+      JSONObject song = store.sharedRow(track);
+      HttpUrl saved = publicUrl(DesktopPlaylists.picture(song), true);
+      cover = null;
+      if (saved != null) {
+        try {
+          cover = loadCover(context, saved);
+        } catch (Exception error) {
+          if (Thread.currentThread().isInterrupted()) throw error;
+          // A saved image URL can expire. Ask Online Metadata for a fresh one.
+        }
+      }
+      if (cover == null) {
+        HttpUrl resolved = publicUrl(pictureUrl(context, song), true);
+        if (resolved != null && !resolved.equals(saved)) cover = loadCover(context, resolved);
+      }
+    }
+    return cover == null ? null : decodeCover(cover.bytes, 320, 96 * 1024, true).bytes;
+  }
+
   private static Cover decodeCover(byte[] bytes, boolean migu) throws IOException {
-    int outputSide = migu ? 420 : COVER_SIDE;
+    return decodeCover(bytes, migu ? 420 : COVER_SIDE, (migu ? 96 : 360) * 1024, migu);
+  }
+
+  private static Cover decodeCover(byte[] bytes, int outputSide, int passthroughLimit, boolean preferJpeg)
+      throws IOException {
     BitmapFactory.Options options = new BitmapFactory.Options();
     options.inJustDecodeBounds = true;
     BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
     String mime = options.outMimeType;
     // Older Android versions rely on WebView to decode AVIF.
-    if (mime == null && bytes.length >= 16 && bytes.length <= COVER_IMAGE_LIMIT) {
+    if (mime == null && bytes.length >= 16 && bytes.length <= Math.min(passthroughLimit, COVER_IMAGE_LIMIT)) {
       String brand = new String(bytes, 4, 8, StandardCharsets.US_ASCII);
       if ("ftypavif".equals(brand) || "ftypavis".equals(brand))
         return new Cover("image/avif", bytes);
@@ -273,7 +314,7 @@ final class CatalogEngine {
         || options.outWidth <= 0
         || options.outHeight <= 0) throw new IOException();
     int side = Math.max(options.outWidth, options.outHeight);
-    if (side <= outputSide && bytes.length <= (migu ? 96 * 1024 : 360 * 1024))
+    if (side <= outputSide && bytes.length <= passthroughLimit)
       return new Cover(mime, bytes);
 
     options.inJustDecodeBounds = false;
@@ -295,7 +336,7 @@ final class CatalogEngine {
         image = scaled;
       }
       ByteArrayOutputStream output = new ByteArrayOutputStream();
-      boolean alpha = image.hasAlpha() && !migu;
+      boolean alpha = image.hasAlpha() && !preferJpeg;
       if (!image.compress(
           alpha ? Bitmap.CompressFormat.PNG : Bitmap.CompressFormat.JPEG, 85, output))
         throw new IOException();

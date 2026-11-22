@@ -57,17 +57,9 @@ export function RGB_Log_Shade(p,c0){
  * @returns color
  */
 export function RGB_Alpha_Shade(p, color) {
-  var i = parseInt
-  var n = p < 0
-  var [r, g, b, a] = color.split(",")
-  r = r[3] == 'a' ? r.slice(5) : r.slice(4)
-  if (a) {
-    a = parseFloat(a)
-    a = a - (n ? (1 - a) * p : a * p)
-    a = n ? Math.max(0, a) : Math.min(1, a)
-  } else {
-    a = 1 - p
-    a = Math.min(1, a)
-  }
-  return `rgba(${i(r)}, ${i(g)}, ${i(b)}, ${a.toFixed(2)})`
+  const [red, green, blue, opacity] = color.split(',')
+  const r = parseInt(red.slice(red.startsWith('rgba(') ? 5 : 4))
+  const alpha = opacity ? parseFloat(opacity) : 1
+  const adjusted = p < 0 ? alpha - (1 - alpha) * p : alpha * (1 - p)
+  return `rgba(${r}, ${parseInt(green)}, ${parseInt(blue)}, ${Math.min(1, Math.max(0, adjusted)).toFixed(2)})`
 }

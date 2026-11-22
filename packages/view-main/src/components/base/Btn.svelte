@@ -126,10 +126,6 @@
     &.icontext {
       gap: 2px;
     }
-
-    // TODO: loading
-    &.loading {
-    }
   }
   .middle {
     padding: 6px 12px;

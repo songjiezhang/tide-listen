@@ -149,10 +149,6 @@
 
         &:global(.hover) {
           background-color: var(--color-button-background-hover);
-
-          &.close {
-            background-color: var(--color-btn-close);
-          }
         }
       }
 

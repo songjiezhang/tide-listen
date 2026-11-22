@@ -5,7 +5,12 @@ const fontSplitRxp = /(?=<\d+,\d+>).*?/g
 const timeRxpAll = /<(\d+),(\d+)>/g
 const timeRxp = /<(\d+),(\d+)>/
 
-// Create animation
+/** @typedef {{ startTime: number, time: number, text: string, dom: HTMLSpanElement, animation: Animation }} TimedFont */
+/**
+ * @param {HTMLElement} dom
+ * @param {number} duration
+ * @param {boolean} isVertical
+ */
 const createAnimation = (dom, duration, isVertical) =>
   new window.Animation(
     new window.KeyframeEffect(
@@ -25,6 +30,7 @@ const createAnimation = (dom, duration, isVertical) =>
 // https://jsfiddle.net/ceqpnbky/1/
 
 export default class FontPlayer {
+  /** @param {import('./types').FontOptions & { time?: number }} options */
   constructor({
     time = 0,
     rate = 1,
@@ -69,7 +75,11 @@ export default class FontPlayer {
     this._performanceTime = 0
     this._startTime = 0
 
-    this.lineContent = null
+    this.lineContent = Object.assign(document.createElement('div'), { time })
+    this.line = document.createElement('div')
+    this.lrcContent = document.createElement('div')
+    /** @type {TimedFont[]} */
+    this.fonts = []
 
     this.timeoutTools = new TimeoutTools(50)
     this.waitPlayTimeout = new TimeoutTools(50)
@@ -82,20 +92,16 @@ export default class FontPlayer {
 
     this.isLineMode = false
 
-    this.lineContent = document.createElement('div')
-    this.lineContent.time = this.time
     this.lineContent.className = this.lineContentClassName
 
-    this.line = document.createElement('div')
-    this.line.style = 'position:relative;display:inline-block;'
+    this.line.style.cssText = 'position:relative;display:inline-block;'
     this.line.className = this.lineClassName
     this.lineContent.appendChild(this.line)
 
-    this.lrcContent = document.createElement('div')
     this.lrcContent.className = this.fontLrcClassName
     // if (this.shadowContent) {
     //   this.lrcShadowContent = document.createElement('div')
-    //   this.lrcShadowContent.style = 'position:absolute;top:0;left:0;width:100%;z-index:-1;'
+    //   this.lrcShadowContent.style.cssText = 'position:absolute;top:0;left:0;width:100%;z-index:-1;'
     //   this.lrcShadowContent.className = this.shadowClassName
     //   this.line.appendChild(this.lrcShadowContent)
     // }
@@ -104,7 +110,7 @@ export default class FontPlayer {
     if (this.extendedLyrics.length && this.showExtendedLyrics) {
       if (this.mergeExtendedLyrics) {
         const extendedLrcContent = document.createElement('div')
-        extendedLrcContent.style = 'position:relative;display:inline-block;'
+        extendedLrcContent.style.cssText = 'position:relative;display:inline-block;'
         extendedLrcContent.className = this.extendedLrcClassName
         this.lineContent.appendChild(document.createElement('br'))
         this.lineContent.appendChild(extendedLrcContent)
@@ -120,14 +126,14 @@ export default class FontPlayer {
       } else {
         for (const lrc of this.extendedLyrics) {
           const extendedLrcContent = document.createElement('div')
-          extendedLrcContent.style = 'position:relative;display:inline-block;'
+          extendedLrcContent.style.cssText = 'position:relative;display:inline-block;'
           extendedLrcContent.className = this.extendedLrcClassName
           this.lineContent.appendChild(document.createElement('br'))
           this.lineContent.appendChild(extendedLrcContent)
 
           // if (this.shadowContent) {
           //   const extendedLrcShadowContent = document.createElement('div')
-          //   extendedLrcShadowContent.style = 'position:absolute;top:0;left:0;width:100%;z-index:-1;'
+          //   extendedLrcShadowContent.style.cssText = 'position:absolute;top:0;left:0;width:100%;z-index:-1;'
           //   extendedLrcShadowContent.className = this.shadowClassName
           //   extendedLrcShadowContent.textContent = lrc
           //   extendedLrcContent.appendChild(extendedLrcShadowContent)
@@ -182,7 +188,7 @@ export default class FontPlayer {
     }
 
     if (this.shadowContent && lrcShadowContent) {
-      lrcShadowContent.style = 'position:absolute;top:0;left:0;right:0;z-index:-1;'
+      lrcShadowContent.style.cssText = 'position:absolute;top:0;left:0;right:0;z-index:-1;'
       lrcShadowContent.className = this.shadowClassName
       this.line.appendChild(lrcShadowContent)
     }
@@ -203,15 +209,14 @@ export default class FontPlayer {
     this.lrcContent.textContent = this.lyric
 
     // if (this.shadowContent) this.lrcShadowContent.textContent = this.lyric
-    this.fonts.push({
-      text: this.lyric,
-    })
+    this.fonts.length = 0
   }
 
   _currentTime() {
     return (getNow() - this._performanceTime) * this._rate + this._startTime
   }
 
+  /** @param {number} curTime */
   _findcurFontNum(curTime, startIndex = 0) {
     const length = this.fonts.length
     for (let index = startIndex; index < length; index++) {
@@ -235,16 +240,21 @@ export default class FontPlayer {
     }
   }
 
-  _handlePlayFont(font, currentTime, toFinishe) {
+  /**
+   * @param {TimedFont} font
+   * @param {number} currentTime
+   * @param {boolean} [finished]
+   */
+  _handlePlayFont(font, currentTime, finished) {
     switch (font.animation.playState) {
       case 'finished':
         break
       case 'idle':
         font.dom.style.backgroundSize = '100% 100%'
-        if (!toFinishe) font.animation.play()
+        if (!finished) font.animation.play()
         break
       default:
-        if (toFinishe) {
+        if (finished) {
           font.animation.cancel()
         } else {
           font.animation.currentTime = currentTime
@@ -254,6 +264,7 @@ export default class FontPlayer {
     }
   }
 
+  /** @param {boolean} isPlayed */
   _handlePlayLine(isPlayed) {
     this.isPlay = false
     if (isPlayed) {
@@ -264,6 +275,7 @@ export default class FontPlayer {
     // this.fonts[0].dom.style.backgroundSize = isPlayed ? '100% 100%' : '100% 0'
   }
 
+  /** @param {TimedFont} font */
   _handlePauseFont(font) {
     if (font.animation.playState == 'running') font.animation.pause()
   }
@@ -318,10 +330,9 @@ export default class FontPlayer {
 
   play(curTime = 0) {
     // console.log('play', curTime)
+    if (this.isLineMode) return this._handlePlayLine(true)
     if (!this.fonts.length) return
     this.pause()
-
-    if (this.isLineMode) return this._handlePlayLine(true)
     this.lineContent.classList.remove('played')
     this.isPlay = true
     this._performanceTime = getNow()
@@ -349,7 +360,7 @@ export default class FontPlayer {
     this.timeoutTools.clear()
     this.waitPlayTimeout.clear()
     this._handlePauseFont(this.fonts[this.curFontNum])
-    if (this.curFontNum === this.maxLine) return
+    if (this.curFontNum === this.maxFontNum) return
     const curFontNum = this._findcurFontNum(this._currentTime())
     if (this.curFontNum === curFontNum) return
     for (let i = 0; i < this.curFontNum; i++) this._handlePlayFont(this.fonts[i], 0, true)
@@ -367,9 +378,10 @@ export default class FontPlayer {
     this.curFontNum = this.maxFontNum
   }
 
+  /** @param {number} rate */
   setPlaybackRate(rate) {
     this._rate = rate
-    if (!this.lines.length) return
+    if (!this.fonts.length) return
     if (!this.isPlay) return
     this.play(this._currentTime())
   }

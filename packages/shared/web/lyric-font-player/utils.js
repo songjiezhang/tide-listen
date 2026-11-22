@@ -1,15 +1,20 @@
 export const getNow =
-  typeof performance == 'object' && window.performance.now ? window.performance.now.bind(window.performance) : Date.now.bind(Date)
+  typeof performance === 'object' ? performance.now.bind(performance) : Date.now
 
 export class TimeoutTools {
   constructor(thresholdTime = 80) {
+    /** @type {import('./types').TimerFunctions['setTimeout']} */
     this.setTimeout = window.setTimeout.bind(window)
+    /** @type {import('./types').TimerFunctions['clearTimeout']} */
     this.clearTimeout = window.clearTimeout.bind(window)
+    /** @type {import('./types').TimerFunctions['nextTick']} */
     this.nextTick = window.requestAnimationFrame.bind(window)
+    /** @type {import('./types').TimerFunctions['cancelNextTick']} */
     this.cancelNextTick = window.cancelAnimationFrame.bind(window)
     this.invokeTime = 0
     this.animationFrameId = null
     this.timeoutId = null
+    /** @type {((drift: number) => void) | null} */
     this.callback = null
     this.thresholdTime = thresholdTime
   }
@@ -30,10 +35,11 @@ export class TimeoutTools {
       }
 
       // console.log('diff', diff)
-      this.callback(diff)
+      this.callback?.(diff)
     })
   }
 
+  /** @param {(drift: number) => void} callback */
   start(callback = () => {}, timeout = 0) {
     // console.log(timeout)
     this.callback = callback

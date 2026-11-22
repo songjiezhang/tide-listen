@@ -1165,13 +1165,7 @@ public final class PlayerActivity extends Activity {
           Uri uri = Uri.parse(track.getString("uri"));
           if ("content".equals(uri.getScheme())) url = CatalogEngine.embeddedCover(this, uri);
         } else {
-          JSONObject song = store.sharedRow(track);
-          String platform = song.getJSONObject("meta").optString("source");
-          if (MusicStore.PLATFORMS.contains(platform)) {
-            JSONObject result = CatalogEngine.run(this,
-                obj("action", "picture", "platform", platform, "musicInfo", song));
-            url = CatalogEngine.art(result.optString("url"));
-          }
+          url = CatalogEngine.art(CatalogEngine.pictureUrl(this, store.sharedRow(track)));
         }
       } catch (Exception ignored) {
         // A track can have no artwork, or its provider can be offline.

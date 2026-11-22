@@ -46,7 +46,7 @@
   const handleAfterLeave = () => {
     onafterleave?.()
   }
-  export const show = async (_options: AnyListen.IPCCommon.InputDialogOptions, _extId: string) => {
+  export const show = async (_options: AnyListen.IPCCommon.InputDialogOptions, _extId = '') => {
     options = _options
     extId = _extId
     value = _options.value || ''

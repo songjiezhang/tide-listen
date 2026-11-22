@@ -41,7 +41,7 @@
     }
   })
 
-  let setting = useSettingValue(item.field)
+  let setting = $derived(useSettingValue(item.field))
 </script>
 
 {#if item.type === 'input'}

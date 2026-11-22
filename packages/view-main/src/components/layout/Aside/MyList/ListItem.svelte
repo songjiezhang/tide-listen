@@ -19,9 +19,9 @@
     oncontextmenu?: MouseEventHandler<HTMLDivElement>
   } = $props()
 
-  const fetching = useFetchingListStatus(listInfo.id)
+  let fetching = $derived(useFetchingListStatus(listInfo.id))
 
-  const listCover = useListCover(listInfo)
+  let listCover = $derived(useListCover(listInfo))
 
   const handleSelect = () => {
     const url = `/library?id=${listInfo.id}`

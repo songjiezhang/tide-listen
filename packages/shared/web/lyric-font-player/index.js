@@ -4,6 +4,7 @@ import LinePlayer from './line-player'
 const fontTimeExp = /<(\d+),(\d+)>/g
 
 export default class Lyric {
+  /** @param {import('./types').LyricOptions} options */
   constructor({
     lyric = '',
     extendedLyrics = [],
@@ -49,6 +50,11 @@ export default class Lyric {
     this.playingLineNum = -1
     this.isLineMode = false
 
+    /** @type {FontPlayer[]} */
+    this._lineFonts = []
+    /** @type {import('./types').RenderedLine[]} */
+    this._lines = []
+    /** @type {{ lines: import('./types').LyricLine[], offset: number }} */
     this.initInfo = {
       lines: [],
       offset: 0,
@@ -69,6 +75,11 @@ export default class Lyric {
     this.linePlayer.setLyric(this.lyric, this.extendedLyrics)
   }
 
+  /**
+   * @param {number} num
+   * @param {string} text
+   * @param {number} curTime
+   */
   _handleLinePlayerOnPlay = (num, text, curTime) => {
     if (this.isLineMode) {
       if (num < this.playingLineNum + 1) {
@@ -115,70 +126,45 @@ export default class Lyric {
     this.onPlay(num, this._lines[num]?.text ?? '')
   }
 
+  /**
+   * @param {import('./types').LyricLine[]} lyricLines
+   * @param {number} offset
+   * @param {boolean} isUpdate
+   */
   _initLines = (lyricLines, offset, isUpdate) => {
     // console.log(lyricLines)
     // this._lines = lyricsLines
-    this.isLineMode = lyricLines.length && !/^<\d+,\d+>/.test(lyricLines[0].text)
+    this.isLineMode = lyricLines.length > 0 && !/^<\d+,\d+>/.test(lyricLines[0].text)
     this.playingLineNum = -1
 
     this._lineFonts = []
-    if (this.isLineMode) {
-      this._lines = lyricLines.map((line) => {
-        const fontPlayer = new FontPlayer({
-          time: line.time,
-          rate: this.rate,
-          lyric: line.text,
-          extendedLyrics: line.extendedLyrics,
-          lineContentClassName: this.lineContentClassName,
-          lineClassName: this.lineClassName,
-          shadowClassName: this.shadowClassName,
-          fontModeClassName: this.fontModeClassName,
-          lineModeClassName: this.lineModeClassName,
-          fontLrcClassName: this.fontLrcClassName,
-          extendedLrcClassName: this.extendedLrcClassName,
-          shadowContent: this.shadowContent,
-          mergeExtendedLyrics: this.mergeExtendedLyrics,
-          showExtendedLyrics: this.showExtendedLyrics,
-          isVertical: this.isVertical,
-        })
-
-        this._lineFonts.push(fontPlayer)
-        return {
-          text: line.text,
-          time: line.time,
-          extendedLyrics: line.extendedLyrics,
-          dom_line: fontPlayer.lineContent,
-        }
+    this._lines = lyricLines.map((line) => {
+      const fontPlayer = new FontPlayer({
+        time: line.time,
+        rate: this.rate,
+        lyric: line.text,
+        extendedLyrics: line.extendedLyrics,
+        lineContentClassName: this.lineContentClassName,
+        lineClassName: this.lineClassName,
+        shadowClassName: this.shadowClassName,
+        fontModeClassName: this.fontModeClassName,
+        lineModeClassName: this.lineModeClassName,
+        fontLrcClassName: this.fontLrcClassName,
+        extendedLrcClassName: this.extendedLrcClassName,
+        shadowContent: this.shadowContent,
+        mergeExtendedLyrics: this.mergeExtendedLyrics,
+        showExtendedLyrics: this.showExtendedLyrics,
+        isVertical: this.isVertical,
       })
-    } else {
-      this._lines = lyricLines.map((line) => {
-        const fontPlayer = new FontPlayer({
-          time: line.time,
-          rate: this.rate,
-          lyric: line.text,
-          extendedLyrics: line.extendedLyrics,
-          lineContentClassName: this.lineContentClassName,
-          lineClassName: this.lineClassName,
-          shadowClassName: this.shadowClassName,
-          fontModeClassName: this.fontModeClassName,
-          lineModeClassName: this.lineModeClassName,
-          fontLrcClassName: this.fontLrcClassName,
-          extendedLrcClassName: this.extendedLrcClassName,
-          shadowContent: this.shadowContent,
-          mergeExtendedLyrics: this.mergeExtendedLyrics,
-          showExtendedLyrics: this.showExtendedLyrics,
-          isVertical: this.isVertical,
-        })
 
-        this._lineFonts.push(fontPlayer)
-        return {
-          text: line.text.replace(fontTimeExp, ''),
-          time: line.time,
-          extendedLyrics: line.extendedLyrics,
-          dom_line: fontPlayer.lineContent,
-        }
-      })
-    }
+      this._lineFonts.push(fontPlayer)
+      return {
+        text: this.isLineMode ? line.text : line.text.replace(fontTimeExp, ''),
+        time: line.time,
+        extendedLyrics: line.extendedLyrics,
+        dom_line: fontPlayer.lineContent,
+      }
+    })
 
     // 如果是逐行歌词，则添加 60ms 的偏移
     this.linePlayer.setGlobalOffset(this.isLineMode ? 60 : 0)
@@ -186,18 +172,23 @@ export default class Lyric {
     else this.onSetLyric(this._lines, offset)
   }
 
+  /**
+   * @param {import('./types').LyricLine[]} lyricLines
+   * @param {number} offset
+   */
   _handleLinePlayerOnSetLyric = (lyricLines, offset) => {
     this._initLines(lyricLines, offset, false)
-    this.playingLineNum = 0
     this.initInfo.lines = lyricLines
     this.initInfo.offset = offset
   }
 
+  /** @param {number} curTime */
   setTime(curTime) {
     if (!this.linePlayer) return
     this.linePlayer.setTime(curTime)
   }
 
+  /** @param {number} curTime */
   play(curTime) {
     if (!this.linePlayer) return
     this.linePlayer.play(curTime)
@@ -209,64 +200,55 @@ export default class Lyric {
     if (this.playingLineNum > -1) this._lineFonts[this.playingLineNum]?.pause()
   }
 
+  /** @param {number} offset */
   setOffset(offset) {
     this.linePlayer.setOffset(offset)
   }
 
-  setLyric(lyric, extendedLyrics) {
+  /**
+   * @param {string} lyric
+   * @param {string[]} [extendedLyrics]
+   */
+  setLyric(lyric, extendedLyrics = []) {
     this.lyric = lyric
     this.extendedLyrics = extendedLyrics
     this._init()
   }
 
+  /** @param {number} rate */
   setPlaybackRate(rate) {
     this.rate = rate
     this.linePlayer.setPlaybackRate(rate)
     this._initLines(this.initInfo.lines, this.initInfo.offset, true)
-    if (this.linePlayer.isPlay) {
-      const num = this.playingLineNum
-      this.playingLineNum = 0
-      this._handleLinePlayerOnPlay(num, '', this.linePlayer._currentTime())
-    } else this.playingLineNum = 0
   }
 
+  /** @param {boolean} isVertical */
   setVertical(isVertical) {
     if (this.isVertical === isVertical) return
     this.isVertical = isVertical
     this._initLines(this.initInfo.lines, this.initInfo.offset, true)
-    if (this.linePlayer.isPlay) {
-      const num = this.playingLineNum
-      this.playingLineNum = 0
-      this._handleLinePlayerOnPlay(num, '', this.linePlayer._currentTime())
-    } else this.playingLineNum = 0
   }
 
+  /** @param {boolean} merge */
   setMergeExtendedLyrics(merge) {
     if (this.mergeExtendedLyrics === merge) return
     this.mergeExtendedLyrics = merge
     this._initLines(this.initInfo.lines, this.initInfo.offset, true)
-    if (this.linePlayer.isPlay) {
-      const num = this.playingLineNum
-      this.playingLineNum = 0
-      this._handleLinePlayerOnPlay(num, '', this.linePlayer._currentTime())
-    } else this.playingLineNum = 0
   }
 
+  /** @param {boolean} show */
   setShowExtendedLyrics(show) {
     if (this.showExtendedLyrics === show) return
     this.showExtendedLyrics = show
     this._initLines(this.initInfo.lines, this.initInfo.offset, true)
-    if (this.linePlayer.isPlay) {
-      const num = this.playingLineNum
-      this.playingLineNum = 0
-      this._handleLinePlayerOnPlay(num, '', this.linePlayer._currentTime())
-    } else this.playingLineNum = 0
   }
 
+  /** @param {import('./types').TimerFunctions} [tools] */
   setTimeoutTools(tools) {
     this.linePlayer.setTimeoutTools(tools)
   }
 
+  /** @param {import('./types').DisplayOptions} options */
   setOptions(options) {
     let updated = false
     if (options.isVertical !== undefined && this.isVertical !== options.isVertical) {

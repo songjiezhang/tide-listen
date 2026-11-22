@@ -51,6 +51,10 @@ overrides:
   ws>utf-8-validate: '-'
   yauzl@<3: '3'
 
+patchedDependencies:
+  'lru-cache@11.5.3': patches/lru-cache@11.5.3.patch
+  'message2call@2.0.3': patches/message2call@2.0.3.patch
+
 peerDependencyRules:
   allowedVersions:
     ts-node>@types/node: '24'

@@ -17,10 +17,15 @@ const timeoutTools = new TimeoutTools()
 const t_rxp_1 = /^0+(\d+)/
 const t_rxp_2 = /:0+(\d+)/g
 const t_rxp_3 = /\.0+(\d+)/
+/** @param {string} label */
 const formatTimeLabel = (label) => {
   return label.replace(t_rxp_1, '$1').replace(t_rxp_2, ':$1').replace(t_rxp_3, '.$1')
 }
 
+/**
+ * @param {Record<string, import('./types').LyricLine>} lrcLinesMap
+ * @param {string} extendedLyric
+ */
 const parseExtendedLyric = (lrcLinesMap, extendedLyric) => {
   const extendedLines = extendedLyric.split(/\r\n|\n|\r/)
   for (let i = 0; i < extendedLines.length; i++) {
@@ -44,8 +49,11 @@ const parseExtendedLyric = (lrcLinesMap, extendedLyric) => {
 }
 
 export default class LinePlayer {
-  constructor({ globalOffset = 0, rate = 1, onPlay = function () {}, onSetLyric = function () {} } = {}) {
+  /** @param {import('./types').LinePlayerOptions} [options] */
+  constructor({ offset = 0, globalOffset = 0, rate = 1, onPlay = function () {}, onSetLyric = function () {} } = {}) {
+    /** @type {Record<string, string>} */
     this.tags = {}
+    /** @type {import('./types').LyricLine[]} */
     this.lines = []
     this.onPlay = onPlay
     this.onSetLyric = onSetLyric
@@ -53,15 +61,16 @@ export default class LinePlayer {
     this.curLineNum = 0
     this.maxLine = 0
     this.globalOffset = globalOffset
-    this.offset = 0
+    this.offset = offset
+    this.lyric = ''
+    /** @type {string[]} */
+    this.extendedLyrics = []
     this._performanceTime = 0
     this._startTime = 0
     this._rate = rate
   }
 
   _init() {
-    if (this.lyric == null) this.lyric = ''
-    if (this.extendedLyrics == null) this.extendedLyrics = []
     this._initTag()
     this._initLines()
     this.onSetLyric(this.lines, this.offset)
@@ -69,8 +78,8 @@ export default class LinePlayer {
 
   _initTag() {
     this.tags = {}
-    for (let tag in tagRegMap) {
-      const matches = this.lyric.match(new RegExp(`\\[${tagRegMap[tag]}:([^\\]]*)]`, 'i'))
+    for (const [tag, label] of Object.entries(tagRegMap)) {
+      const matches = this.lyric.match(new RegExp(`\\[${label}:([^\\]]*)]`, 'i'))
       this.tags[tag] = (matches && matches[1]) || ''
     }
     if (this.tags.offset) {
@@ -86,6 +95,7 @@ export default class LinePlayer {
     this.lines = []
     const isMsTime = msTimeRxp.test(this.lyric)
     const lines = this.lyric.split(/\r\n|\r|\n/)
+    /** @type {Record<string, import('./types').LyricLine>} */
     const linesMap = {}
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim()
@@ -143,6 +153,7 @@ export default class LinePlayer {
     return this._rawCurrentTime() + this._getOffsetTime()
   }
 
+  /** @param {number} curTime */
   _findCurLineNum(curTime, startIndex = 0) {
     if (curTime <= 0) return 0
     const length = this.lines.length
@@ -215,6 +226,7 @@ export default class LinePlayer {
     this._refresh()
   }
 
+  /** @param {number} curTime */
   setTime(curTime) {
     if (!this.lines.length) return
     this.pause()
@@ -246,22 +258,29 @@ export default class LinePlayer {
     this.play(curTime)
   }
 
+  /** @param {number} rate */
   setPlaybackRate(rate) {
     const currentTime = this._rawCurrentTime()
     this._rate = rate
     this.replay(currentTime)
   }
 
+  /** @param {number} offset */
   setOffset(offset) {
     this.offset = offset
     this.replay()
   }
 
+  /** @param {number} globalOffset */
   setGlobalOffset(globalOffset) {
     this.globalOffset = globalOffset
     this.replay()
   }
 
+  /**
+   * @param {string} lyric
+   * @param {string[]} [extendedLyrics]
+   */
   setLyric(lyric, extendedLyrics = []) {
     // console.log(extendedLyrics)
     if (this.isPlay) this.pause()
@@ -270,6 +289,7 @@ export default class LinePlayer {
     this._init()
   }
 
+  /** @param {import('./types').TimerFunctions} [tools] */
   setTimeoutTools(tools) {
     timeoutTools.clear()
     // console.log('set', tools)

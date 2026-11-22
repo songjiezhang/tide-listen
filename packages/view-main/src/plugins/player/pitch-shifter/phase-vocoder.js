@@ -5,6 +5,7 @@ import OLAProcessor from './ola-processor'
 
 const DEFAULT_BUFFERED_BLOCK_SIZE = 4096
 
+/** @param {number} length */
 function genHannWindow(length) {
   let win = new Float32Array(length)
   for (let i = 0; i < length; i++) {
@@ -29,9 +30,9 @@ class PhaseVocoderProcessor extends OLAProcessor {
     ]
   }
 
+  /** @param {import('./worklet').ProcessorOptions} options */
   constructor(options) {
-    ;(options.processorOptions ??= {}).blockSize ??= DEFAULT_BUFFERED_BLOCK_SIZE
-    super(options)
+    super(options, options.processorOptions?.blockSize ?? DEFAULT_BUFFERED_BLOCK_SIZE)
 
     this.fftSize = this.blockSize
     this.timeCursor = 0
@@ -48,6 +49,11 @@ class PhaseVocoderProcessor extends OLAProcessor {
     this.nbPeaks = 0
   }
 
+  /**
+   * @param {import('./worklet').AudioBuses} inputs
+   * @param {import('./worklet').AudioBuses} outputs
+   * @param {import('./worklet').AudioParameters} parameters
+   */
   processOLA(inputs, outputs, parameters) {
     // k-rate automation, param arrays only have single value
     const pitchFactor = parameters.pitchFactor[0] /*  || Math.pow(2, (parameters.pitchCents[0]/12)) */
@@ -78,6 +84,7 @@ class PhaseVocoderProcessor extends OLAProcessor {
   }
 
   /** Apply Hann window in-place */
+  /** @param {Float32Array} input */
   applyHannWindow(input) {
     for (let i = 0; i < this.blockSize; i++) {
       input[i] = input[i] * this.hannWindow[i]
@@ -123,6 +130,7 @@ class PhaseVocoderProcessor extends OLAProcessor {
   }
 
   /** Shift peaks and regions of influence by pitchFactor into new specturm */
+  /** @param {number} pitchFactor */
   shiftPeaks(pitchFactor) {
     // zero-fill new spectrum
     this.freqComplexBufferShifted.fill(0)
@@ -174,4 +182,5 @@ class PhaseVocoderProcessor extends OLAProcessor {
   }
 }
 
-globalThis.registerProcessor('phase-vocoder-processor', PhaseVocoderProcessor)
+const { registerProcessor } = /** @type {typeof globalThis & import('./worklet').WorkletScope} */ (globalThis)
+registerProcessor('phase-vocoder-processor', PhaseVocoderProcessor)

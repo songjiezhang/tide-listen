@@ -141,11 +141,6 @@
       }
     }
 
-    span {
-      margin-right: 5px;
-      font-size: 12px;
-      color: var(--color-primary-dark-500-alpha-300);
-    }
   }
 
   // :global(.tips-fade-enter-active),

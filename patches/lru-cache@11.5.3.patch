@@ -1,0 +1,96 @@
+diff --git a/dist/commonjs/browser/index.d.ts b/dist/commonjs/browser/index.d.ts
+--- a/dist/commonjs/browser/index.d.ts
++++ b/dist/commonjs/browser/index.d.ts
+@@ -1029,7 +1029,7 @@
+     static unsafeExposeInternals<K extends {}, V extends {}, FC extends unknown = unknown>(c: LRUCache<K, V, FC>): {
+         starts: ZeroArray | undefined;
+         ttls: ZeroArray | undefined;
+-        autopurgeTimers: (NodeJS.Timeout | undefined)[] | undefined;
++        autopurgeTimers: (ReturnType<typeof setTimeout> | undefined)[] | undefined;
+         sizes: ZeroArray | undefined;
+         keyMap: Map<K, number>;
+         keyList: (K | undefined)[];
+diff --git a/dist/commonjs/index.d.ts b/dist/commonjs/index.d.ts
+--- a/dist/commonjs/index.d.ts
++++ b/dist/commonjs/index.d.ts
+@@ -1029,7 +1029,7 @@
+     static unsafeExposeInternals<K extends {}, V extends {}, FC extends unknown = unknown>(c: LRUCache<K, V, FC>): {
+         starts: ZeroArray | undefined;
+         ttls: ZeroArray | undefined;
+-        autopurgeTimers: (NodeJS.Timeout | undefined)[] | undefined;
++        autopurgeTimers: (ReturnType<typeof setTimeout> | undefined)[] | undefined;
+         sizes: ZeroArray | undefined;
+         keyMap: Map<K, number>;
+         keyList: (K | undefined)[];
+diff --git a/dist/commonjs/node/index.d.ts b/dist/commonjs/node/index.d.ts
+--- a/dist/commonjs/node/index.d.ts
++++ b/dist/commonjs/node/index.d.ts
+@@ -1029,7 +1029,7 @@
+     static unsafeExposeInternals<K extends {}, V extends {}, FC extends unknown = unknown>(c: LRUCache<K, V, FC>): {
+         starts: ZeroArray | undefined;
+         ttls: ZeroArray | undefined;
+-        autopurgeTimers: (NodeJS.Timeout | undefined)[] | undefined;
++        autopurgeTimers: (ReturnType<typeof setTimeout> | undefined)[] | undefined;
+         sizes: ZeroArray | undefined;
+         keyMap: Map<K, number>;
+         keyList: (K | undefined)[];
+diff --git a/dist/commonjs/react-native/index.d.ts b/dist/commonjs/react-native/index.d.ts
+--- a/dist/commonjs/react-native/index.d.ts
++++ b/dist/commonjs/react-native/index.d.ts
+@@ -1029,7 +1029,7 @@
+     static unsafeExposeInternals<K extends {}, V extends {}, FC extends unknown = unknown>(c: LRUCache<K, V, FC>): {
+         starts: ZeroArray | undefined;
+         ttls: ZeroArray | undefined;
+-        autopurgeTimers: (NodeJS.Timeout | undefined)[] | undefined;
++        autopurgeTimers: (ReturnType<typeof setTimeout> | undefined)[] | undefined;
+         sizes: ZeroArray | undefined;
+         keyMap: Map<K, number>;
+         keyList: (K | undefined)[];
+diff --git a/dist/esm/browser/index.d.ts b/dist/esm/browser/index.d.ts
+--- a/dist/esm/browser/index.d.ts
++++ b/dist/esm/browser/index.d.ts
+@@ -1029,7 +1029,7 @@
+     static unsafeExposeInternals<K extends {}, V extends {}, FC extends unknown = unknown>(c: LRUCache<K, V, FC>): {
+         starts: ZeroArray | undefined;
+         ttls: ZeroArray | undefined;
+-        autopurgeTimers: (NodeJS.Timeout | undefined)[] | undefined;
++        autopurgeTimers: (ReturnType<typeof setTimeout> | undefined)[] | undefined;
+         sizes: ZeroArray | undefined;
+         keyMap: Map<K, number>;
+         keyList: (K | undefined)[];
+diff --git a/dist/esm/index.d.ts b/dist/esm/index.d.ts
+--- a/dist/esm/index.d.ts
++++ b/dist/esm/index.d.ts
+@@ -1029,7 +1029,7 @@
+     static unsafeExposeInternals<K extends {}, V extends {}, FC extends unknown = unknown>(c: LRUCache<K, V, FC>): {
+         starts: ZeroArray | undefined;
+         ttls: ZeroArray | undefined;
+-        autopurgeTimers: (NodeJS.Timeout | undefined)[] | undefined;
++        autopurgeTimers: (ReturnType<typeof setTimeout> | undefined)[] | undefined;
+         sizes: ZeroArray | undefined;
+         keyMap: Map<K, number>;
+         keyList: (K | undefined)[];
+diff --git a/dist/esm/node/index.d.ts b/dist/esm/node/index.d.ts
+--- a/dist/esm/node/index.d.ts
++++ b/dist/esm/node/index.d.ts
+@@ -1029,7 +1029,7 @@
+     static unsafeExposeInternals<K extends {}, V extends {}, FC extends unknown = unknown>(c: LRUCache<K, V, FC>): {
+         starts: ZeroArray | undefined;
+         ttls: ZeroArray | undefined;
+-        autopurgeTimers: (NodeJS.Timeout | undefined)[] | undefined;
++        autopurgeTimers: (ReturnType<typeof setTimeout> | undefined)[] | undefined;
+         sizes: ZeroArray | undefined;
+         keyMap: Map<K, number>;
+         keyList: (K | undefined)[];
+diff --git a/dist/esm/react-native/index.d.ts b/dist/esm/react-native/index.d.ts
+--- a/dist/esm/react-native/index.d.ts
++++ b/dist/esm/react-native/index.d.ts
+@@ -1029,7 +1029,7 @@
+     static unsafeExposeInternals<K extends {}, V extends {}, FC extends unknown = unknown>(c: LRUCache<K, V, FC>): {
+         starts: ZeroArray | undefined;
+         ttls: ZeroArray | undefined;
+-        autopurgeTimers: (NodeJS.Timeout | undefined)[] | undefined;
++        autopurgeTimers: (ReturnType<typeof setTimeout> | undefined)[] | undefined;
+         sizes: ZeroArray | undefined;
+         keyMap: Map<K, number>;
+         keyList: (K | undefined)[];

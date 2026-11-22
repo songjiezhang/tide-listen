@@ -5,6 +5,7 @@ import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 import androidx.media3.common.*;
 import androidx.media3.datasource.*;
@@ -17,16 +18,33 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import org.json.*;
 
 @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
 public final class PlaybackService extends MediaSessionService {
   private static final String RESUME_QUEUE = "playback-queue";
   private static final long CHECKPOINT_INTERVAL = 5000;
+  private static final long NOTIFICATION_INTERVAL_MS = 500;
   private final Handler main = new Handler(Looper.getMainLooper());
   private MediaSession session;
   private SharedPreferences prefs, savedQueue, savedProgress;
   private String queueRevision;
+  private final ThreadPoolExecutor artworkWorker =
+      new ThreadPoolExecutor(2, 2, 30, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1),
+          new ThreadPoolExecutor.DiscardOldestPolicy());
+  private Future<?> artworkRequest;
+  private Runnable pendingNotification;
+  private long lastNotificationAt;
+  private boolean lastForegroundRequired;
+  private int artworkGeneration;
+  private int artworkIndex = C.INDEX_UNSET;
+  private MediaItem decoratedItem;
+  private boolean updatingArtwork;
+  private final Runnable refreshArtwork = this::loadCurrentArtwork;
   private final Runnable checkpoint =
       new Runnable() {
         @Override
@@ -53,6 +71,7 @@ public final class PlaybackService extends MediaSessionService {
   @Override
   public void onCreate() {
     super.onCreate();
+    artworkWorker.allowCoreThreadTimeOut(true);
     DefaultMediaNotificationProvider notifications =
         new DefaultMediaNotificationProvider.Builder(this).build();
     notifications.setSmallIcon(R.drawable.tidelisten_note);
@@ -101,7 +120,14 @@ public final class PlaybackService extends MediaSessionService {
         new Player.Listener() {
           @Override
           public void onTimelineChanged(Timeline timeline, int reason) {
-            if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) saveQueue(player, store);
+            if (!updatingArtwork && reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED)
+              saveQueue(player, store);
+          }
+
+          @Override
+          public void onMediaItemTransition(MediaItem item, int reason) {
+            main.removeCallbacks(refreshArtwork);
+            main.post(refreshArtwork);
           }
 
           @Override
@@ -119,8 +145,91 @@ public final class PlaybackService extends MediaSessionService {
           }
         });
     session = builder.build();
+    main.post(refreshArtwork);
     prefs.registerOnSharedPreferenceChangeListener(onPreference);
     applyPlayMode(player);
+  }
+
+  @Override
+  public void onUpdateNotification(MediaSession mediaSession, boolean foregroundRequired) {
+    if (pendingNotification != null) {
+      main.removeCallbacks(pendingNotification);
+      pendingNotification = null;
+    }
+    long now = SystemClock.uptimeMillis();
+    long nextUpdate = lastNotificationAt + NOTIFICATION_INTERVAL_MS;
+    // A burst of skips sends both timeline and artwork events. Android may drop the final
+    // notification if every intermediate state is posted. Always publish foreground changes now.
+    if (now >= nextUpdate || foregroundRequired != lastForegroundRequired
+        || (foregroundRequired && !isPlaybackOngoing()) || !isSessionAdded(mediaSession)) {
+      publishNotification(mediaSession, foregroundRequired);
+      return;
+    }
+    pendingNotification = () -> {
+      pendingNotification = null;
+      if (session == mediaSession && isSessionAdded(mediaSession))
+        publishNotification(mediaSession, foregroundRequired && isPlaybackOngoing());
+    };
+    main.postAtTime(pendingNotification, nextUpdate);
+  }
+
+  private void publishNotification(MediaSession mediaSession, boolean foregroundRequired) {
+    lastNotificationAt = SystemClock.uptimeMillis();
+    lastForegroundRequired = foregroundRequired;
+    super.onUpdateNotification(mediaSession, foregroundRequired);
+  }
+
+  private void replaceArtwork(Player player, int index, MediaItem item) {
+    updatingArtwork = true;
+    try {
+      player.replaceMediaItem(index, item);
+    } finally {
+      updatingArtwork = false;
+    }
+  }
+
+  private void loadCurrentArtwork() {
+    if (session == null) return;
+    Player player = session.getPlayer();
+    MediaItem current = player.getCurrentMediaItem();
+    if (decoratedItem != null && decoratedItem.equals(current)
+        && artworkIndex == player.getCurrentMediaItemIndex()) return;
+
+    int generation = ++artworkGeneration;
+    if (artworkRequest != null) artworkRequest.cancel(true);
+    artworkWorker.purge();
+
+    // Only the playing item carries image bytes across the MediaSession IPC boundary.
+    if (decoratedItem != null && artworkIndex < player.getMediaItemCount()
+        && decoratedItem.equals(player.getMediaItemAt(artworkIndex))) {
+      MediaMetadata cleared = decoratedItem.mediaMetadata.buildUpon().setArtworkData(null, null).build();
+      replaceArtwork(player, artworkIndex, decoratedItem.buildUpon().setMediaMetadata(cleared).build());
+    }
+    decoratedItem = null;
+    artworkIndex = C.INDEX_UNSET;
+    if (current == null || current.mediaMetadata.artworkData != null) return;
+    String id = current.mediaId;
+    MusicStore store = MusicStore.get(this);
+    JSONObject track = store.queuedTrack(id);
+    if (track == null) return;
+    artworkRequest = artworkWorker.submit(() -> {
+      try {
+        byte[] bytes = CatalogEngine.sessionArtwork(this, store, track);
+        if (bytes == null || Thread.currentThread().isInterrupted()) return;
+        main.post(() -> {
+          if (generation != artworkGeneration || session == null) return;
+          MediaItem playing = player.getCurrentMediaItem();
+          if (playing == null || !id.equals(playing.mediaId)) return;
+          MediaMetadata metadata = playing.mediaMetadata.buildUpon()
+              .setArtworkData(bytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER).build();
+          artworkIndex = player.getCurrentMediaItemIndex();
+          decoratedItem = playing.buildUpon().setMediaMetadata(metadata).build();
+          replaceArtwork(player, artworkIndex, decoratedItem);
+        });
+      } catch (Exception ignored) {
+        // An offline provider or a local file without a picture must not interrupt playback.
+      }
+    });
   }
 
   static MediaItem mediaItem(JSONObject track) throws JSONException {
@@ -224,12 +333,18 @@ public final class PlaybackService extends MediaSessionService {
 
   @Override
   public void onDestroy() {
+    ++artworkGeneration;
+    if (pendingNotification != null) main.removeCallbacks(pendingNotification);
+    main.removeCallbacks(refreshArtwork);
+    if (artworkRequest != null) artworkRequest.cancel(true);
+    artworkWorker.shutdownNow();
     if (session != null) {
       prefs.unregisterOnSharedPreferenceChangeListener(onPreference);
       main.removeCallbacks(checkpoint);
       if (savedProgress != null) saveProgress(session.getPlayer());
       session.getPlayer().release();
       session.release();
+      session = null;
     }
     super.onDestroy();
   }

@@ -15,6 +15,14 @@ overrides:
   ws>bufferutil: '-'
   ws>utf-8-validate: '-'
 
+patchedDependencies:
+  lru-cache@11.5.3:
+    hash: d8b6b014e1dc73113846d02e70ab8c30f04a637fd6c989e57748abf912e34f07
+    path: patches/lru-cache@11.5.3.patch
+  message2call@2.0.3:
+    hash: efa009352496022dbc919b9ea51a6474177d593cb66dd3fd2b0996fa1b40bef7
+    path: patches/message2call@2.0.3.patch
+
 importers:
 
   .:
@@ -60,7 +68,7 @@ importers:
         version: 2.1.0
       message2call:
         specifier: ^2.0.3
-        version: 2.0.3
+        version: 2.0.3(patch_hash=efa009352496022dbc919b9ea51a6474177d593cb66dd3fd2b0996fa1b40bef7)
     devDependencies:
       '@any-listen/eslint':
         specifier: workspace:@shared/eslint@*
@@ -118,7 +126,7 @@ importers:
         version: 1.5.0
       message2call:
         specifier: ^2.0.3
-        version: 2.0.3
+        version: 2.0.3(patch_hash=efa009352496022dbc919b9ea51a6474177d593cb66dd3fd2b0996fa1b40bef7)
       ws:
         specifier: ^8.22.1
         version: 8.22.1
@@ -140,7 +148,7 @@ importers:
     dependencies:
       lru-cache:
         specifier: ^11.5.3
-        version: 11.5.3
+        version: 11.5.3(patch_hash=d8b6b014e1dc73113846d02e70ab8c30f04a637fd6c989e57748abf912e34f07)
       mime:
         specifier: ^4.1.2
         version: 4.1.2
@@ -204,7 +212,7 @@ importers:
         version: link:../common
       message2call:
         specifier: ^2.0.3
-        version: 2.0.3
+        version: 2.0.3(patch_hash=efa009352496022dbc919b9ea51a6474177d593cb66dd3fd2b0996fa1b40bef7)
     devDependencies:
       '@any-listen/eslint':
         specifier: workspace:@shared/eslint@*
@@ -378,7 +386,7 @@ importers:
         version: link:../shared/web
       message2call:
         specifier: ^2.0.3
-        version: 2.0.3
+        version: 2.0.3(patch_hash=efa009352496022dbc919b9ea51a6474177d593cb66dd3fd2b0996fa1b40bef7)
     devDependencies:
       '@any-listen/eslint':
         specifier: workspace:@shared/eslint@*
@@ -463,7 +471,7 @@ importers:
         version: 18.1.3
       message2call:
         specifier: ^2.0.3
-        version: 2.0.3
+        version: 2.0.3(patch_hash=efa009352496022dbc919b9ea51a6474177d593cb66dd3fd2b0996fa1b40bef7)
       refractor:
         specifier: ^5.0.0
         version: 5.0.0
@@ -575,7 +583,7 @@ importers:
         version: 6.9.1
       message2call:
         specifier: ^2.0.3
-        version: 2.0.3
+        version: 2.0.3(patch_hash=efa009352496022dbc919b9ea51a6474177d593cb66dd3fd2b0996fa1b40bef7)
       ws:
         specifier: ^8.22.1
         version: 8.22.1
@@ -7211,7 +7219,7 @@ snapshots:
 
   lowercase-keys@2.0.0: {}
 
-  lru-cache@11.5.3: {}
+  lru-cache@11.5.3(patch_hash=d8b6b014e1dc73113846d02e70ab8c30f04a637fd6c989e57748abf912e34f07): {}
 
   lru-cache@6.0.0:
     dependencies:
@@ -7269,7 +7277,7 @@ snapshots:
 
   merge2@1.4.1: {}
 
-  message2call@2.0.3: {}
+  message2call@2.0.3(patch_hash=efa009352496022dbc919b9ea51a6474177d593cb66dd3fd2b0996fa1b40bef7): {}
 
   micromark-util-character@2.1.1:
     dependencies:

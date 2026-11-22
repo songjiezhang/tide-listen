@@ -7,7 +7,7 @@ android {
         applicationId 'io.github.anylisten.midnight'
         minSdk 23
         targetSdk 35
-        versionCode 19
+        versionCode 20
         versionName '0.13.9'
     }
     sourceSets.main.assets.srcDir '../shared/brand'

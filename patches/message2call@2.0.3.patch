@@ -1,0 +1,24 @@
+diff --git a/dist/shared.d.ts b/dist/shared.d.ts
+--- a/dist/shared.d.ts
++++ b/dist/shared.d.ts
+@@ -3,7 +3,7 @@
+     stack?: string;
+ }, data?: unknown) => void;
+ export interface GetDataHandle extends GetDataHandleFn {
+-    timeout?: number | null | NodeJS.Timeout;
++    timeout?: number | null | ReturnType<typeof setTimeout>;
+ }
+ export interface ProxyCallback {
+     __msg2call_cbname__: string;
+diff --git a/types/common.d.ts b/types/common.d.ts
+--- a/types/common.d.ts
++++ b/types/common.d.ts
+@@ -12,7 +12,7 @@
+   /**
+    * on call error hook
+    */
+-  onError?: (err: Error, path: string[], groupName: string | null) => viod
++  onError?: (err: Error, path: string[], groupName: string | null) => void
+   /**
+    * call timeout, 0 will be no timeout
+    */

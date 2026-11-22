@@ -31,7 +31,7 @@ export const showInputBox = async (
       })
     : () => {}
   await tick()
-  return (app.show(options, extId) as Promise<string>).finally(() => {
+  return app.show(options, extId).finally(() => {
     key = ''
     unsub()
     unsub2()

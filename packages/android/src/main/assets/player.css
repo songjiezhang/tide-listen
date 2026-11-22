@@ -313,6 +313,9 @@ body.car nav { grid-template-columns: repeat(5,minmax(0,1fr)); }
 body.car nav button { padding: 2px; flex-direction: column; white-space: nowrap; }
 body.car nav svg { margin: 0; }
 body.car .playlistGrid { grid-template-columns: repeat(auto-fill,minmax(132px,1fr)); }
+@media (orientation: portrait) {
+  body.car .onlinePlaylists { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
 body.car .playlistCard .cover { height: auto; aspect-ratio: auto; display: block; }
 body.car .playlistCard .cover::before { content: ""; display: block; padding-top: 66.6667%; }
 .cover img, .cover svg { left: 0; top: 0; right: 0; bottom: 0; }
@@ -327,7 +330,7 @@ body.car .fullCover { width: 28vh; height: 28vh; max-width: 200px; max-height: 2
 .searchBox { flex: 1; min-width: 0; }
 .searchBox input { min-width: 0; width: 100%; height: 44px; border: 0; background: transparent; color: var(--fg); }
 .phoneSearch button { color: var(--accent); padding: 0 8px; }
-.compactPlaylists { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px 8px; }
+.compactPlaylists { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px 8px; }
 .compactPlaylists .playlistCard { border-radius: 9px; background: transparent; }
 .compactPlaylists .cover { height: auto; aspect-ratio: auto; display: block; border-radius: 9px; }
 .compactPlaylists .cover::before { content: ""; display: block; padding-top: 66.6667%; }

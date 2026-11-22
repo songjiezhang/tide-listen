@@ -274,7 +274,8 @@ function homeLists() {
   const state = catalog.get(browseKey())
   const rows = state ? state.rows : []
   const compact = !data.car && catalogMode === 'list'
-  return '<div class="playlistGrid' + (compact ? ' compactPlaylists' : '') + '">' + rows.map((item, i) =>
+  const gridClass = catalogMode === 'list' ? 'playlistGrid onlinePlaylists' : 'playlistGrid'
+  return '<div class="' + gridClass + (compact ? ' compactPlaylists' : '') + '">' + rows.map((item, i) =>
     card(item, item.id, compact ? '' : [platforms[platform], item.total != null ? item.total + ' 首' : item.author].filter(Boolean).join(' · '), i < (compact ? 9 : 4))
   ).join('') + '</div>' + loading(state, catalogMode, rows.length === 0)
 }

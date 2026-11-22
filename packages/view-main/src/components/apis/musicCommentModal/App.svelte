@@ -14,7 +14,7 @@
   // let musicInfo = $state.raw<AnyListen.Music.MusicInfo | null>(null)
   let musicComment = $state.raw<ComponentExports<typeof MusicComment> | null>(null)
 
-  export const show = (_musicInfo: AnyListen.Music.MusicInfo, onrefresh: () => AnyListen.Music.MusicInfo | null) => {
+  export const show = (_musicInfo: AnyListen.Music.MusicInfo, onrefresh?: () => AnyListen.Music.MusicInfo | null) => {
     visible = true
     nextTick(() => {
       musicComment?.loadComment(_musicInfo, onrefresh)

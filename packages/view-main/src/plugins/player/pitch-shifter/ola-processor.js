@@ -2,10 +2,16 @@
 
 const WEBAUDIO_BLOCK_SIZE = 128
 
+const { AudioWorkletProcessor } = /** @type {typeof globalThis & import('./worklet').WorkletScope} */ (globalThis)
+
 /** Overlap-Add Node */
-class OLAProcessor extends globalThis.AudioWorkletProcessor {
-  constructor(options) {
-    super(options)
+class OLAProcessor extends AudioWorkletProcessor {
+  /**
+   * @param {import('./worklet').ProcessorOptions} options
+   * @param {number} blockSize
+   */
+  constructor(options, blockSize) {
+    super()
 
     this.keepReturnTrue = true
     this.processNow = false
@@ -13,7 +19,7 @@ class OLAProcessor extends globalThis.AudioWorkletProcessor {
     this.nbInputs = options.numberOfInputs
     this.nbOutputs = options.numberOfOutputs
 
-    this.blockSize = options.processorOptions.blockSize
+    this.blockSize = blockSize
     // TODO for now, the only support hop size is the size of a web audio block
     this.hopSize = WEBAUDIO_BLOCK_SIZE
 
@@ -24,26 +30,38 @@ class OLAProcessor extends globalThis.AudioWorkletProcessor {
     this.fakeEmptyInputs = [new Array(2).fill(new Float32Array(WEBAUDIO_BLOCK_SIZE))]
 
     // pre-allocate input buffers (will be reallocated if needed)
+    /** @type {import('./worklet').AudioBuses} */
     this.inputBuffers = new Array(this.nbInputs)
+    /** @type {import('./worklet').AudioBuses} */
     this.inputBuffersHead = new Array(this.nbInputs)
+    /** @type {import('./worklet').AudioBuses} */
     this.inputBuffersToSend = new Array(this.nbInputs)
     // assume 2 channels per input
     for (var i = 0; i < this.nbInputs; i++) {
       this.allocateInputChannels(i, 2)
     }
     // pre-allocate input buffers (will be reallocated if needed)
+    /** @type {import('./worklet').AudioBuses} */
     this.outputBuffers = new Array(this.nbOutputs)
+    /** @type {import('./worklet').AudioBuses} */
     this.outputBuffersToRetrieve = new Array(this.nbOutputs)
     // assume 2 channels per output
     for (i = 0; i < this.nbOutputs; i++) {
       this.allocateOutputChannels(i, 2)
     }
 
-    this.port.onmessage = (e) => (this.keepReturnTrue = false)
+    this.port.onmessage = () => {
+      this.keepReturnTrue = false
+    }
   }
 
   /** Handles dynamic reallocation of input/output channels buffer
      (channel numbers may vary during lifecycle) **/
+  /**
+   * @param {import('./worklet').AudioBuses} inputs
+   * @param {import('./worklet').AudioBuses} outputs
+   * @param {boolean} force
+   */
   reallocateChannelsIfNeeded(inputs, outputs, force) {
     for (var i = 0; i < this.nbInputs; i++) {
       let nbChannels = inputs[i].length
@@ -62,6 +80,10 @@ class OLAProcessor extends globalThis.AudioWorkletProcessor {
     }
   }
 
+  /**
+   * @param {number} inputIndex
+   * @param {number} nbChannels
+   */
   allocateInputChannels(inputIndex, nbChannels) {
     // allocate input buffers
     // console.log("allocateInputChannels");
@@ -82,6 +104,10 @@ class OLAProcessor extends globalThis.AudioWorkletProcessor {
     }
   }
 
+  /**
+   * @param {number} outputIndex
+   * @param {number} nbChannels
+   */
   allocateOutputChannels(outputIndex, nbChannels) {
     // allocate output buffers
     this.outputBuffers[outputIndex] = new Array(nbChannels)
@@ -99,11 +125,13 @@ class OLAProcessor extends globalThis.AudioWorkletProcessor {
     }
   }
 
+  /** @param {number} value */
   checkForNotSilence(value) {
     return value !== 0
   }
 
   /** Read next web audio block to input buffers **/
+  /** @param {import('./worklet').AudioBuses} inputs */
   readInputs(inputs) {
     // when playback is paused, we may stop receiving new samples
     /* if (inputs[0].length && inputs[0][0].length == 0) {
@@ -153,6 +181,7 @@ class OLAProcessor extends globalThis.AudioWorkletProcessor {
   }
 
   /** Write next web audio block from output buffers **/
+  /** @param {import('./worklet').AudioBuses} outputs */
   writeOutputs(outputs) {
     for (let i = 0; i < this.nbInputs; i++) {
       for (let j = 0; j < this.inputBuffers[i].length; j++) {
@@ -172,6 +201,11 @@ class OLAProcessor extends globalThis.AudioWorkletProcessor {
     }
   }
 
+  /**
+   * @param {import('./worklet').AudioBuses} inputs
+   * @param {import('./worklet').AudioBuses} outputs
+   * @param {import('./worklet').AudioParameters} params
+   */
   process(inputs, outputs, params) {
     // console.log(inputs[0].length ? "active" : "inactive");
     // this.reallocateChannelsIfNeeded(inputs, outputs);
@@ -214,9 +248,14 @@ class OLAProcessor extends globalThis.AudioWorkletProcessor {
     return this.keepReturnTrue
   }
 
-  /* processOLA(inputs, outputs, params) {
-        console.assert(false, "Not overriden");
-    } */
+  /**
+   * @param {import('./worklet').AudioBuses} inputs
+   * @param {import('./worklet').AudioBuses} outputs
+   * @param {import('./worklet').AudioParameters} params
+   */
+  processOLA(inputs, outputs, params) {
+    throw new Error('The processor must implement processOLA')
+  }
 }
 
 export default OLAProcessor

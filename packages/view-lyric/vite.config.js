@@ -201,5 +201,5 @@ export const buildConfig = (target, port = 9300, ipcScript) => {
 }
 
 export default defineConfig(({ mode }) => {
-  return buildConfig(mode)
+  return buildConfig(mode === 'development' || mode === 'production' ? 'desktop' : mode)
 })
