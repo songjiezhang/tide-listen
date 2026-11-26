@@ -156,6 +156,11 @@ final class LxEnginePool<E extends LxEnginePool.Engine> {
     return new Lease(id, entry);
   }
 
+  synchronized boolean isReady(String id, int revision) {
+    Entry entry = entries.get(id);
+    return entry != null && entry.revision == revision && entry.engine != null && !entry.engine.isBroken();
+  }
+
   synchronized void invalidate(String id) {
     Entry entry = entries.remove(id);
     if (entry != null) entry.close();

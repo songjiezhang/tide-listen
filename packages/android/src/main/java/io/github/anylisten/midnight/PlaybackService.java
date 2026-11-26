@@ -13,6 +13,7 @@ import androidx.media3.common.*;
 import androidx.media3.datasource.*;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy;
 import androidx.media3.session.*;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -86,12 +87,24 @@ public final class PlaybackService extends MediaSessionService {
     OkHttpClient onlineHttp = new OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(false)
         .build();
     DataSource.Factory data = () -> new LxDataSource(this, store, upstream, onlineHttp);
+    DefaultLoadErrorHandlingPolicy loadErrorPolicy =
+        new DefaultLoadErrorHandlingPolicy() {
+          @Override
+          public long getRetryDelayMsFor(LoadErrorInfo loadErrorInfo) {
+            if (loadErrorInfo.exception instanceof LxDataSource.ExhaustedException) {
+              return C.TIME_UNSET;
+            }
+            return super.getRetryDelayMsFor(loadErrorInfo);
+          }
+        };
     ExoPlayer player =
         new ExoPlayer.Builder(this)
-            .setMediaSourceFactory(new DefaultMediaSourceFactory(this).setDataSourceFactory(data))
+            .setMediaSourceFactory(
+                new DefaultMediaSourceFactory(this)
+                    .setDataSourceFactory(data)
+                    .setLoadErrorHandlingPolicy(loadErrorPolicy))
             .build();
     player.setAudioAttributes(
         new AudioAttributes.Builder()

@@ -23,7 +23,8 @@ import org.json.*;
 final class LxEngine implements LxEnginePool.Engine {
   static final OkHttpClient HTTP =
       new OkHttpClient.Builder().callTimeout(25, TimeUnit.SECONDS).build();
-  private static final OkHttpClient SCRIPT_HTTP = HTTP.newBuilder().retryOnConnectionFailure(false).build();
+  private static final OkHttpClient SCRIPT_HTTP = HTTP.newBuilder().build();
+  private static volatile boolean quickJsReady;
   static final int SCRIPT_LIMIT = 2 * 1024 * 1024;
   private static final long INIT_TIMEOUT_MS = 12_000;
   private final HandlerThread thread = new HandlerThread("LX Music");
@@ -36,7 +37,17 @@ final class LxEngine implements LxEnginePool.Engine {
   private JSONObject capabilities;
   private volatile Exception fatalError;
   private volatile boolean ended;
+  private boolean hadResolve;
   private final Runnable onBroken;
+
+  private static void ensureQuickJsReady() {
+    if (quickJsReady) return;
+    synchronized (LxEngine.class) {
+      if (quickJsReady) return;
+      QuickJSLoader.init();
+      quickJsReady = true;
+    }
+  }
 
   private static final class PendingCall {
     final CountDownLatch done = new CountDownLatch(1);
@@ -117,7 +128,7 @@ final class LxEngine implements LxEnginePool.Engine {
         () -> {
           try {
             if (ended) return;
-            QuickJSLoader.init();
+            ensureQuickJsReady();
             js = QuickJSContext.create();
             js.setMemoryLimit(48 * 1024 * 1024);
             js.evaluate(
@@ -136,8 +147,8 @@ final class LxEngine implements LxEnginePool.Engine {
                     tag(script, "homepage", ""),
                     script);
             js.evaluate(script);
-          } catch (Exception e) {
-            fail(e);
+          } catch (Throwable e) {
+            fail(e instanceof Exception ? (Exception) e : new IOException("音源初始化失败", e));
           }
         });
   }
@@ -164,19 +175,22 @@ final class LxEngine implements LxEnginePool.Engine {
     PendingCall pending = new PendingCall();
     synchronized (this) {
       if (ended) throw fatalError != null ? fatalError : new IOException("音源会话已关闭");
+      hadResolve = true;
       pendingRequests.put(reqId, pending);
       handler.post(() -> {
         if (pendingRequests.containsKey(reqId)) send("request", payload);
       });
     }
+    boolean completed = false;
     try {
       if (!pending.done.await(timeoutMs, TimeUnit.MILLISECONDS)) throw new TimeoutException("音源请求超时");
+      completed = true;
       if (pending.error != null) throw pending.error;
       return pending.url;
     } finally {
       synchronized (this) {
         pendingRequests.remove(reqId);
-        if (pendingRequests.isEmpty()) {
+        if (!completed && pendingRequests.isEmpty()) {
           for (Call call : calls.values()) call.cancel();
         }
       }
@@ -386,7 +400,7 @@ final class LxEngine implements LxEnginePool.Engine {
               Math.max(1, Math.min(15000, o.optLong("timeout", SourceRace.ATTEMPT_TIMEOUT_MS))), TimeUnit.MILLISECONDS);
       synchronized (this) {
         if (ended) return;
-        if (initialized.getCount() == 0 && pendingRequests.isEmpty()) {
+        if (initialized.getCount() == 0 && hadResolve && pendingRequests.isEmpty()) {
           reply(id, null, "播放请求已结束");
           return;
         }

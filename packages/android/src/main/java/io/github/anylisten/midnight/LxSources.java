@@ -337,6 +337,10 @@ final class LxSources {
         throw new SourceRace.Skipped("音源已变更");
     }
 
+    boolean isWarm() {
+      return pool.isReady(id, revision);
+    }
+
     LxEnginePool<LxEngine>.Lease acquire(Context context) throws Exception {
       synchronized (LxSources.this) {
         ensureCurrent();

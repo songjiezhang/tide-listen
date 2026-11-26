@@ -219,6 +219,27 @@
     &.selectedactive {
       border-color: var(--color-primary-alpha-700);
     }
+    &.playing {
+      box-shadow: inset 3px 0 0 var(--color-primary);
+      background-color: color-mix(in srgb, var(--color-primary) 14%, transparent);
+
+      .name {
+        font-weight: 600;
+        color: var(--color-primary);
+      }
+
+      .list-item-cell {
+        color: color-mix(in srgb, var(--color-primary) 72%, var(--color-font));
+      }
+
+      &:hover {
+        background-color: color-mix(in srgb, var(--color-primary) 20%, transparent);
+      }
+      &.selected,
+      &.active {
+        background-color: color-mix(in srgb, var(--color-primary) 24%, transparent);
+      }
+    }
   }
   // .active {
   //   background-color: var(--color-primary-background);
@@ -429,8 +450,12 @@
       .track-number {
         color: var(--color-primary);
       }
-      &:not(.active, .selected, :hover) {
-        background: color-mix(in srgb, var(--color-font) 6%, transparent);
+      .name {
+        font-weight: 600;
+        color: var(--color-primary);
+      }
+      .list-item-cell {
+        color: color-mix(in srgb, var(--color-primary) 72%, var(--color-font));
       }
     }
     .list-item-cell:last-child {

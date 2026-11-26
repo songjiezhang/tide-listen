@@ -92,7 +92,15 @@ select {
 .actions { flex-wrap: wrap; margin: 0 0 8px; }
 .actions button { margin: 0 7px 5px 0; }
 .tracks { padding: 0; list-style: none; border-top: 1px solid var(--border); }
-.track { border-bottom: 1px solid var(--border); }
+.track { border-bottom: 1px solid var(--border); border-radius: 10px; transition: background .2s ease; }
+.track.playing {
+  background: rgba(180, 156, 252, .16);
+  box-shadow: inset 3px 0 0 var(--accent);
+  border-bottom-color: rgba(180, 156, 252, .32);
+}
+.track.playing .trackIndex { color: var(--accent); font-size: 16px; font-weight: 700; }
+.track.playing .trackCopy strong { color: #dfd2ff; font-weight: 700; }
+.track.playing .trackCopy small { color: #c7b6fa; }
 .trackMain { flex: 1 1 auto; min-width: 0; min-height: 55px; justify-content: flex-start; padding: 5px 0; text-align: start; }
 .trackIndex {
   flex: none; width: 28px; color: #a9a5bb; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; margin-right: 4px;

@@ -75,6 +75,7 @@
 <div
   class="container"
   class:played={info.played}
+  class:playing
   role="button"
   tabindex="0"
   onkeydown={handleClick}
@@ -181,6 +182,26 @@
 
     &.played {
       opacity: 0.4;
+    }
+
+    &.playing {
+      opacity: 1;
+      background-color: color-mix(in srgb, var(--color-primary) 14%, transparent);
+      box-shadow: inset 3px 0 0 var(--color-primary);
+
+      .name-info h4 {
+        font-weight: 600;
+        color: var(--color-primary);
+      }
+
+      .name-info .singer,
+      .time {
+        color: color-mix(in srgb, var(--color-primary) 72%, var(--color-font));
+      }
+
+      &:hover {
+        background-color: color-mix(in srgb, var(--color-primary) 20%, transparent);
+      }
     }
 
     &:not(.active, .selected) {

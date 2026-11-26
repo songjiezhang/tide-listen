@@ -245,4 +245,28 @@ public class SourceRaceTest {
         LxSources.playbackQualities("flac24bit"));
     assertEquals(Collections.singletonList("auto"), LxSources.playbackQualities("auto"));
   }
+
+  @Test(timeout = 2000)
+  public void runtimeErrorFailsAttemptImmediatelyWithoutWaitingForTimeout() throws Exception {
+    SourceHealthTracker health = new SourceHealthTracker();
+    SourceRace<String, String> race = new SourceRace<>(Arrays.asList("broken", "ok"), health,
+        SourceRaceTest::key, (source, control) -> {
+          if (source.equals("broken")) throw new LinkageError("native init failed");
+          return source;
+        }, result -> {}, 60_000, 60_000);
+    assertEquals("ok", race.await());
+  }
+
+  @Test(timeout = 2000)
+  public void poolReportsReadyStateOnlyForLiveCurrentRevision() throws Exception {
+    LxEnginePool<TestEngine> pool = new LxEnginePool<>(new SourceHealthTracker());
+    assertFalse(pool.isReady("one", 1));
+    try (LxEnginePool<TestEngine>.Lease lease = pool.acquire("one", 1, onBroken -> new TestEngine())) {
+      lease.await();
+      assertTrue(pool.isReady("one", 1));
+      assertFalse(pool.isReady("one", 2));
+    }
+    pool.invalidate("one");
+    assertFalse(pool.isReady("one", 1));
+  }
 }

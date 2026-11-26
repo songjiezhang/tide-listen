@@ -302,9 +302,12 @@ function isLiked(row) {
 function trackRows(rows, remove) {
   return '<ol class="tracks">' + rows.map((t, i) => {
     const liked = isLiked(t)
-    return '<li class="track"' + (sorting ? ' data-sort-id="' + esc(t.key) + '"' : '') + '>' +
+    const current = Boolean(playing.id) && t.id === playing.id
+    return '<li class="track' + (current ? ' playing' : '') + '"' +
+      (current ? ' aria-current="true"' : '') +
+      (sorting ? ' data-sort-id="' + esc(t.key) + '"' : '') + '>' +
       (sorting ? grip : '') + '<button class="trackMain" type="button" data-track="' + esc(t.id) + '"' +
-      (t.playable === false ? ' disabled' : '') + '><span class="trackIndex">' + (t.id === playing.id ? '♫' : String(i + 1)) + '</span>' +
+      (t.playable === false ? ' disabled' : '') + '><span class="trackIndex">' + (current ? '♫' : String(i + 1)) + '</span>' +
       '<span class="trackCopy"><strong>' + esc(t.name) + '</strong><small>' +
       esc([t.artist, t.platform, t.duration].filter(Boolean).join(' · ')) + '</small></span></button>' +
       '<button type="button" class="plain heart' + (liked ? ' liked' : '') + '" data-fav="' + esc(t.id) +
@@ -584,7 +587,7 @@ window.transport = (state) => {
   if (changed) seekHeld = false
   playing = state
   positionSample = performance.now()
-  if (changed && (listId || online)) draw()
+  if (changed && (listId || online || tab === 'search')) draw()
   else drawTransport()
 }
 window.openList = ({ id }) => {

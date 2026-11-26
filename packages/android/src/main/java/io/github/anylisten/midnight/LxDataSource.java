@@ -22,6 +22,16 @@ import org.json.*;
 /** Passes the first valid media stream at the selected quality to ExoPlayer. */
 @androidx.annotation.OptIn(markerClass = UnstableApi.class)
 final class LxDataSource implements DataSource {
+  static final String STREAM_USER_AGENT =
+      "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36";
+  private static final long COLD_ATTEMPT_TIMEOUT_MS = 14_000;
+
+  static final class ExhaustedException extends IOException {
+    ExhaustedException(String message) {
+      super(message);
+    }
+  }
+
   private final Context context;
   private final MusicStore store;
   private final DataSource.Factory upstreamFactory;
@@ -38,7 +48,7 @@ final class LxDataSource implements DataSource {
     android.net.ConnectivityManager network =
         (android.net.ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
     if (network == null || network.isActiveNetworkMetered())
-      throw new IOException("已开启「仅在非计费网络播放」，请连接 Wi-Fi 或调整网络设置");
+      throw new ExhaustedException("已开启「仅在非计费网络播放」，请连接 Wi-Fi 或调整网络设置");
   }
 
   private static final class OpenRequest {
@@ -143,7 +153,7 @@ final class LxDataSource implements DataSource {
     JSONObject music = track.getJSONObject("music");
     List<LxSources.Candidate> remaining = store.sources.candidates(platform);
     if (remaining.isEmpty())
-      throw new IOException("请启用支持" + MusicStore.platformName(platform) + "的音源");
+      throw new ExhaustedException("请启用支持" + MusicStore.platformName(platform) + "的音源");
     String preferred = store.prefs.getString("quality", "auto");
     String lastError = "";
     int tried = 0;
@@ -152,14 +162,21 @@ final class LxDataSource implements DataSource {
     SourceHealthTracker.Key<LxSources.Candidate> key = candidate -> candidate.id + "::" + platform;
     for (String quality : LxSources.playbackQualities(preferred)) {
       List<LxSources.Candidate> supported = new ArrayList<>();
+      boolean hasCold = false;
       for (LxSources.Candidate candidate : remaining) {
-        if (!unavailable.contains(candidate.id) && candidate.maySupport(platform, quality)) supported.add(candidate);
+        if (!unavailable.contains(candidate.id) && candidate.maySupport(platform, quality)) {
+          supported.add(candidate);
+          if (!candidate.isWarm()) hasCold = true;
+        }
       }
       if (supported.isEmpty()) continue;
+      long attemptTimeoutMs = hasCold ? COLD_ATTEMPT_TIMEOUT_MS : SourceRace.ATTEMPT_TIMEOUT_MS;
       SourceRace<LxSources.Candidate, Stream> race = new SourceRace<>(
           health.rankCandidates(supported, key), health, key,
-          (candidate, control) -> openCandidate(spec, music, quality, candidate, unavailable, control),
-          stream -> closeQuietly(stream.source));
+          (candidate, control) -> openCandidate(spec, music, quality, candidate, unavailable, control, attemptTimeoutMs),
+          stream -> closeQuietly(stream.source),
+          SourceRace.HEDGE_DELAY_MS,
+          attemptTimeoutMs);
       synchronized (this) {
         if (!isOpening(request)) throw new InterruptedException();
         request.race = race;
@@ -191,18 +208,21 @@ final class LxDataSource implements DataSource {
     }
     if (!isOpening(request)) throw new InterruptedException();
     checkNetwork();
-    if (tried == 0) throw new IOException("已启用的音源不支持所选音质或更低音质");
-    throw new IOException("已尝试 " + tried + " 个音源，均未能播放。最后一次错误 · " + lastError);
+    if (tried == 0) throw new ExhaustedException("已启用的音源不支持所选音质或更低音质");
+    throw new ExhaustedException("已尝试 " + tried + " 个音源，均未能播放。最后一次错误 · " + lastError);
   }
 
   private Stream openCandidate(DataSpec spec, JSONObject music, String quality, LxSources.Candidate candidate,
-      Set<String> unavailable, SourceRace.Control control) throws Exception {
+      Set<String> unavailable, SourceRace.Control control, long attemptTimeoutMs) throws Exception {
     StreamCall call = new StreamCall(onlineHttp);
     DataSource source = null;
     boolean valid = false;
     checkCandidateNetwork();
     try (LxEnginePool<LxEngine>.Lease lease = candidate.acquire(context)) {
-      control.onResult(lease::recordResult);
+      control.onResult(timedOut -> {
+        if (timedOut) unavailable.add(candidate.id);
+        lease.recordResult(timedOut);
+      });
       control.checkCanceled();
       LxEngine engine;
       try {
@@ -215,12 +235,12 @@ final class LxDataSource implements DataSource {
       }
       try {
         candidate.cacheCapabilities(engine.capabilities());
-        String url = engine.resolve(music, quality, SourceRace.ATTEMPT_TIMEOUT_MS);
+        String url = engine.resolve(music, quality, attemptTimeoutMs);
         checkCandidateNetwork();
         control.onCancel(timedOut -> call.cancel());
         control.checkCanceled();
         DataSpec remote = spec.withUri(Uri.parse(url));
-        source = new OkHttpDataSource.Factory(call).createDataSource();
+        source = new OkHttpDataSource.Factory(call).setUserAgent(STREAM_USER_AGENT).createDataSource();
         long length = source.open(remote);
         if (length == 0 || isErrorPage(source.getResponseHeaders()))
           throw new IOException("音源返回了无效的音频响应");
@@ -232,6 +252,9 @@ final class LxDataSource implements DataSource {
         if (error.platform) unavailable.add(candidate.id);
         throw new SourceRace.Skipped(error.getMessage());
       } catch (InterruptedException | SourceRace.Skipped error) {
+        throw error;
+      } catch (java.util.concurrent.TimeoutException error) {
+        unavailable.add(candidate.id);
         throw error;
       } catch (Exception error) {
         control.checkCanceled();

@@ -201,8 +201,14 @@ final class SourceRace<T, R> {
         checkCanceled();
         R result = request.run(candidate, this);
         if (!succeeded(this, result)) close.close(result);
-      } catch (Exception error) {
-        failed(this, error, false);
+      } catch (Throwable error) {
+        failed(
+            this,
+            error instanceof Exception
+                ? (Exception) error
+                : new IOException(
+                    error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage(), error),
+            false);
       }
     }
 
