@@ -4,11 +4,38 @@ import { workers } from '@/worker'
 
 import type { ExposeFunctions } from '.'
 
-// 暴露给前端的方法
+interface PendingUrl {
+  controller: AbortController
+  result: Promise<AnyListen.IPCMusic.MusicUrlInfo>
+}
+
+const urls = new Map<string, PendingUrl>()
+let playback: PendingUrl | undefined
+
+export const cancelPlaybackUrl = () => {
+  playback?.controller.abort()
+  playback = undefined
+}
+
+// A foreground request can take over the existing next-song preload.
 export const createExposeMusic = () => {
   return {
     async getMusicUrl(event, info) {
-      return getMusicUrl(info)
+      const key = JSON.stringify([info.musicInfo.id, info.quality, !!info.isRefresh])
+      let pending = urls.get(key)
+      if (info.playback && playback !== pending) cancelPlaybackUrl()
+      if (!pending || pending.controller.signal.aborted) {
+        const controller = new AbortController()
+        const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(100_000)])
+        const result = getMusicUrl({ ...info, signal }).finally(() => {
+          if (urls.get(key)?.controller === controller) urls.delete(key)
+          if (playback?.controller === controller) playback = undefined
+        })
+        pending = { controller, result }
+        urls.set(key, pending)
+      }
+      if (info.playback) playback = pending
+      return pending.result
     },
     async getMusicUrlCount(event) {
       return workers.dbService.musicUrlCount()

@@ -5,6 +5,7 @@ import { randomUUID } from '@any-listen/nodejs'
 import { createSimpleLogcat } from '@any-listen/nodejs/logs'
 import { createMessage2Call } from 'message2call'
 
+import { resourceRequestSignal } from '../../extensionApis/request'
 import { createExposeObject } from './apis/exposeFuncs'
 import {
   clearExtensionTimeout,
@@ -33,13 +34,34 @@ export const createContext = async (extension: AnyListen.Extension.Extension) =>
   const key = randomUUID()
   const id = extension.id
 
-  const msg2call = createMessage2Call<AnyListen.PreloadFuncs>({
+  const pendingResources = new Map<string, () => void>()
+  const msg2call = createMessage2Call<WarpPromiseRecord<AnyListen.IPCExtension.ExtensionIPCActions>>({
     exposeObj: createExposeObject(extension),
     isSendErrorStack: true,
     timeout: 0,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    sendMessage(data: any) {
+    sendMessage(data: unknown) {
       // console.log('sendMessage', data)
+      const signal = resourceRequestSignal.getStore()
+      if (
+        signal &&
+        Array.isArray(data) &&
+        data[0] === 0 &&
+        typeof data[1] === 'string' &&
+        Array.isArray(data[2]) &&
+        data[2][0] === 'resourceAction'
+      ) {
+        const rpcId: string = data[1]
+        const cancel = () => {
+          pendingResources.delete(rpcId)
+          msg2call.message([1, rpcId, { message: 'Resource request canceled' }])
+        }
+        if (signal.aborted) {
+          cancel()
+          return
+        }
+        signal.addEventListener('abort', cancel, { once: true })
+        pendingResources.set(rpcId, () => signal.removeEventListener('abort', cancel))
+      }
       vmContext.__ext_preload__!(key, 'message', data as string)
     },
   })
@@ -80,6 +102,11 @@ export const createContext = async (extension: AnyListen.Extension.Extension) =>
         if (key != _key || !contextState.vmContexts.has(extension.id)) throw new Error('host call illegal')
         if (action == 'message') {
           // console.log('mssage', data)
+          const packet: unknown = data
+          if (Array.isArray(packet) && packet[0] === 1 && typeof packet[1] === 'string') {
+            pendingResources.get(packet[1])?.()
+            pendingResources.delete(packet[1])
+          }
           msg2call.message(data)
           return
         }
@@ -103,6 +130,8 @@ export const createContext = async (extension: AnyListen.Extension.Extension) =>
     preloadFuncs: msg2call.remote,
     unsubscribeEvents: [
       () => {
+        for (const cleanup of pendingResources.values()) cleanup()
+        pendingResources.clear()
         msg2call.destroy()
       },
     ],

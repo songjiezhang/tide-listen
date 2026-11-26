@@ -232,7 +232,8 @@ let prevProgress = {
   currentTime: 0,
 }
 export const getMusicUrl = async (info: AnyListen.IPCMusic.GetMusicUrlInfo): Promise<AnyListen.IPCMusic.MusicUrlInfo> => {
-  let key = `${info.musicInfo.id}_${info.quality}_${info.isRefresh}`
+  if (import.meta.env.VITE_IS_DESKTOP) return getMusicUrlFromRemote(info)
+  const key = `${info.musicInfo.id}_${info.quality}_${info.isRefresh}`
 
   if (getOtherSourcePromises.has(key)) return getOtherSourcePromises.get(key)!
 

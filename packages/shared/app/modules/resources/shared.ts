@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 import { extensionEvent } from '../extension'
 import type { ExtensionSeriveTypes } from '../worker/utils'
 
@@ -16,6 +18,21 @@ export const services = {
   get extensionSerive() {
     return extensionSerive
   },
+}
+
+export const withResourceRequest = async <T>(signal: AbortSignal | undefined, run: (id?: string) => Promise<T>) => {
+  if (!signal) return run()
+  signal.throwIfAborted()
+  const id = randomUUID()
+  const cancel = () => {
+    void extensionSerive.cancelResourceAction(id).catch(() => {})
+  }
+  signal.addEventListener('abort', cancel, { once: true })
+  try {
+    return await run(id)
+  } finally {
+    signal.removeEventListener('abort', cancel)
+  }
 }
 
 export const resourceState: {

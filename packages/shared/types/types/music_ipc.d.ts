@@ -24,6 +24,7 @@ declare namespace AnyListen {
     // }
 
     interface GetMusicUrlInfo {
+      playback?: boolean
       musicInfo: Music.MusicInfo
       isRefresh?: boolean
       quality?: string

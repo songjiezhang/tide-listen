@@ -17,9 +17,9 @@ export const generateName = (url: string) => {
   return (toSha256(`${url}.${Date.now()}`) + ext).toLowerCase()
 }
 
-export const createProxy = async (url: string, reqOptions: Options = {}, enabledCache?: boolean) => {
+export const createProxy = async (url: string, reqOptions: Options = {}, enabledCache?: boolean, skipVerify = false) => {
   // logs.ProxyService.logcat.info('createProxy', url, reqOptions, enabledCache)
-  await verifyResource(url, reqOptions)
+  if (!skipVerify) await verifyResource(url, reqOptions)
 
   const name = generateName(url)
   proxyServerState.proxyMap.set(name, {

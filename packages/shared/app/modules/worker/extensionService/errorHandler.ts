@@ -8,6 +8,8 @@ export const lxScriptErrors = new AsyncLocalStorage<(reason: unknown) => void>()
 export const registerErrorHandler = () => {
   let prevError: Error
   process.on('uncaughtException', (err) => {
+    const failSource = lxScriptErrors.getStore()
+    if (failSource) return failSource(err)
     if (err === prevError) return
     prevError = err
     console.error('An uncaught error occurred!')

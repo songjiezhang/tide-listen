@@ -1,6 +1,7 @@
 import { getPlayInfo, playerEvent } from '@/modules/player'
 
 import type { ExposeFunctions } from '.'
+import { cancelPlaybackUrl } from './music'
 
 // 暴露给前端的方法
 export const createExposePlayer = () => {
@@ -11,6 +12,7 @@ export const createExposePlayer = () => {
     async playerEvent(event, pEvent): Promise<void> {
       switch (pEvent.action) {
         case 'musicChanged':
+          cancelPlaybackUrl()
           playerEvent.musicChanged(pEvent.data.index, pEvent.data.historyIndex, pEvent.data.lastTrackId)
           break
         case 'musicInfoUpdated':
@@ -23,6 +25,7 @@ export const createExposePlayer = () => {
           playerEvent.playbackRate(pEvent.data)
           break
         case 'status':
+          if (pEvent.data[0] === 'stopped' && !pEvent.data[1]) cancelPlaybackUrl()
           playerEvent.status(pEvent.data)
           break
         case 'statusText':

@@ -1,16 +1,12 @@
 /* eslint-disable @typescript-eslint/no-unnecessary-condition */
 import { SINGERS_RXP } from '@any-listen/common/constants'
 
-import { services } from '../../resources/shared'
+import { services, withResourceRequest } from '../shared'
 import { versionChars } from './versionChars'
 
-export const musicSearch = async (
-  extensionId: string,
-  source: string,
-  name: string,
-  artist: string,
-  page: number,
-  limit?: number
+const search = async (
+  params: Parameters<AnyListen.IPCExtension.ResourceAction['musicSearch']>[0],
+  signal?: AbortSignal
 ): Promise<{
   list: AnyListen.Music.MusicInfoOnline[]
   total: number
@@ -18,6 +14,7 @@ export const musicSearch = async (
   page: number
 }> => {
   // console.log(extensionId, source, artist, page, limit)
+  const { name, page, limit } = params
   if (!name.trim().length) {
     return {
       list: [],
@@ -26,16 +23,8 @@ export const musicSearch = async (
       page,
     }
   }
-  return services.extensionSerive
-    .resourceAction('musicSearch', {
-      extensionId,
-      source,
-      name,
-      artist,
-      limit,
-      page,
-    })
-    .then((result) => {
+  return withResourceRequest(signal, async (id) => services.extensionSerive.resourceAction('musicSearch', params, id)).then(
+    (result) => {
       // console.log(result)
       return {
         list: result.list ?? [],
@@ -43,8 +32,18 @@ export const musicSearch = async (
         limit: result.limit ?? 10,
         page: result.page ?? 1,
       }
-    })
+    }
+  )
 }
+
+export const musicSearch = async (
+  extensionId: string,
+  source: string,
+  name: string,
+  artist: string,
+  page: number,
+  limit?: number
+) => search({ extensionId, source, name, artist, page, limit })
 
 type FindMusicType = Omit<AnyListen.Music.MusicInfoOnline, 'name'> & {
   name: null | string
@@ -60,6 +59,7 @@ export const findMusic = async ({
   albumName,
   interval,
   source: s,
+  signal,
 }: {
   extensionId: string
   source: string
@@ -67,6 +67,7 @@ export const findMusic = async ({
   singer: string
   albumName: string
   interval: string | null
+  signal?: AbortSignal
 }): Promise<AnyListen.Music.MusicInfoOnline | null> => {
   // console.log({
   //   extensionId,
@@ -77,7 +78,8 @@ export const findMusic = async ({
   //   source: s,
   // })
   // TODO: auto reversal of singer and name
-  const list = await musicSearch(extensionId, s, name, singer, 1, 20).catch((err) => {
+  const list = await search({ extensionId, source: s, name, artist: singer, page: 1, limit: 20 }, signal).catch((err) => {
+    signal?.throwIfAborted()
     console.error(err)
     return null
   })

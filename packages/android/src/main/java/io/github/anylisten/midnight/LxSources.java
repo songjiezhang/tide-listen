@@ -20,6 +20,8 @@ import org.json.*;
 final class LxSources {
   private static final String ROWS = "lxSources";
   private final SharedPreferences prefs;
+  final SourceHealthTracker health = new SourceHealthTracker();
+  private final LxEnginePool<LxEngine> pool = new LxEnginePool<>(health);
 
   LxSources(SharedPreferences prefs) throws JSONException {
     this.prefs = prefs;
@@ -125,6 +127,12 @@ final class LxSources {
     }
     if (!editor.putString(ROWS, records.toString()).commit())
       throw new IOException("未能保存服务器音源");
+    for (int i = 0; i < existing.length(); i++) invalidate(existing.getJSONObject(i).getString("id"));
+  }
+
+  private void invalidate(String id) {
+    pool.invalidate(id);
+    health.invalidateSource(id);
   }
 
   String install(Context context, JSONObject expected, String script, String fallback, String link)
@@ -225,6 +233,7 @@ final class LxSources {
           .put("revision", row.optInt("revision") + 1);
       if (index < 0) list.put(row);
       save(list, key(row.getString("id")), script);
+      invalidate(row.getString("id"));
       if (index < 0) return new InstallResult("已添加并启用 · " + name, true);
       return new InstallResult((unchanged ? "已保存更新地址 · " : "音源已更新 · ") + name, true);
     }
@@ -244,7 +253,7 @@ final class LxSources {
     String removedKey = null;
     switch (action) {
       case "enableSource":
-        row.put("enabled", !row.getBoolean("enabled"));
+        row.put("enabled", !row.getBoolean("enabled")).put("revision", row.optInt("revision") + 1);
         list.remove(i);
         list.put(row);
         break;
@@ -266,6 +275,7 @@ final class LxSources {
         throw new IllegalArgumentException(action);
     }
     save(list, removedKey, null);
+    if (action.equals("enableSource") || action.equals("removeSource")) invalidate(id);
   }
 
   private void save(JSONArray list, String scriptKey, String script) throws IOException {
@@ -300,37 +310,50 @@ final class LxSources {
   }
 
   final class Candidate {
-    final String name, script;
-    final JSONObject row;
-    private JSONObject qualities;
+    final String id, name, script;
+    final int revision;
+    private volatile JSONObject qualities;
 
     Candidate(JSONObject row) throws JSONException {
-      this.row = row;
+      id = row.getString("id");
       name = row.getString("name");
-      script = prefs.getString(key(row.getString("id")), "");
+      revision = row.optInt("revision");
+      script = prefs.getString(key(id), "");
       qualities = row.optJSONObject("qualities");
     }
 
-    boolean supports(Context context, String platform, String quality) throws Exception {
-      if ("auto".equals(quality)) return true;
-      if (qualities == null) {
-        rememberCapabilities(LxEngine.run(context, script, null, "auto"));
-      }
-      return includes(qualities.optJSONArray(platform), quality);
+    boolean maySupport(String platform, String quality) {
+      JSONObject known = qualities;
+      if (known == null) return true;
+      JSONArray types = known.optJSONArray(platform);
+      return types != null && ("auto".equals(quality) || includes(types, quality));
     }
 
-    String resolve(Context context, JSONObject music, String quality) throws Exception {
-      JSONObject result = LxEngine.run(context, script, music, quality);
-      if (qualities == null) rememberCapabilities(result);
-      return result.getString("url");
+    void ensureCurrent() throws JSONException, SourceRace.Skipped {
+      JSONArray latest = rows();
+      int index = find(latest, "id", id);
+      if (index < 0 || latest.getJSONObject(index).optInt("revision") != revision
+          || !latest.getJSONObject(index).optBoolean("enabled"))
+        throw new SourceRace.Skipped("音源已变更");
+    }
+
+    LxEnginePool<LxEngine>.Lease acquire(Context context) throws Exception {
+      synchronized (LxSources.this) {
+        ensureCurrent();
+        return pool.acquire(id, revision, onBroken -> LxEngine.open(context.getApplicationContext(), script, onBroken));
+      }
+    }
+
+    void cacheCapabilities(JSONObject info) throws JSONException {
+      if (qualities == null) rememberCapabilities(info);
     }
 
     private void rememberCapabilities(JSONObject info) throws JSONException {
       qualities = info.getJSONObject("qualities");
       synchronized (LxSources.this) {
         JSONArray latest = rows();
-        int index = find(latest, "id", row.getString("id"));
-        if (index >= 0 && latest.getJSONObject(index).optInt("revision") == row.optInt("revision")) {
+        int index = find(latest, "id", id);
+        if (index >= 0 && latest.getJSONObject(index).optInt("revision") == revision) {
           latest.getJSONObject(index).put("platforms", info.getJSONArray("platforms")).put("qualities", qualities);
           prefs.edit().putString(ROWS, latest.toString()).apply();
         }
@@ -347,6 +370,11 @@ final class LxSources {
     }
     try {
       candidate.rememberCapabilities(LxEngine.run(context, candidate.script, null, "auto"));
+      synchronized (this) {
+        JSONArray latest = rows();
+        int index = find(latest, "id", id);
+        if (index >= 0 && latest.getJSONObject(index).optInt("revision") == candidate.revision) health.invalidateSource(id);
+      }
       return candidate.name + " · 初始化成功";
     } catch (InterruptedException error) {
       Thread.currentThread().interrupt();

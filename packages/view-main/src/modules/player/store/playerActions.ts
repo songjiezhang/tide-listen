@@ -105,7 +105,7 @@ const getMusicPlayUrl = async (
 
   // const type = getPlayType(settingState.setting['player.playQuality'], musicInfo)
 
-  return getMusicUrl({ musicInfo, isRefresh })
+  return getMusicUrl({ musicInfo, isRefresh, playback: true })
     .then(({ url }) => {
       console.log('url', url)
       if (diffCurrentMusicInfo(musicInfo)) return null

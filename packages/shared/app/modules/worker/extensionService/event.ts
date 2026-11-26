@@ -63,8 +63,14 @@ export class Event extends _Event {
     this.extensionEvent({ action: 'loaded', data: { id, loadTimestamp } })
   }
 
+  // Retire script sessions before another request can observe a stopped loader or
+  // changed configuration. UI notifications still use the usual queued event.
+  private emitLifecycle(name: 'stoping' | 'extenstionSettingUpdated', ...args: unknown[]) {
+    for (const listener of [...(this.listeners.get(name) ?? [])]) listener(...args)
+  }
+
   stoping(id: string) {
-    this.emitEvent('stoping', id)
+    this.emitLifecycle('stoping', id)
     this.extensionEvent({ action: 'stoping', data: id })
   }
 
@@ -112,7 +118,7 @@ export class Event extends _Event {
   }
 
   extenstionSettingUpdated(extId: string, keys: string[], setting: Record<string, any>) {
-    this.emitEvent('extenstionSettingUpdated', extId, keys, setting)
+    this.emitLifecycle('extenstionSettingUpdated', extId, keys, setting)
     this.extensionEvent({ action: 'extenstionSettingUpdated', data: { id: extId, keys, setting } })
   }
 

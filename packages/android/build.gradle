@@ -7,8 +7,8 @@ android {
         applicationId 'io.github.anylisten.midnight'
         minSdk 23
         targetSdk 35
-        versionCode 24
-        versionName '0.13.9'
+        versionCode 25
+        versionName '0.13.10-beta.1'
     }
     sourceSets.main.assets.srcDir '../shared/brand'
     flavorDimensions 'display'
@@ -36,7 +36,9 @@ dependencies {
     // Core 1.17 and newer require a higher compileSdk.
     implementation 'androidx.core:core:1.16.0'
     implementation 'androidx.media3:media3-exoplayer:1.7.1'
+    implementation 'androidx.media3:media3-datasource-okhttp:1.7.1'
     implementation 'androidx.media3:media3-session:1.7.1'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     implementation 'wang.harlon.quickjs:wrapper-android:3.2.3'
+    testImplementation 'junit:junit:4.13.2'
 }

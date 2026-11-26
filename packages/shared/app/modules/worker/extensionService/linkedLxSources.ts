@@ -1,16 +1,26 @@
 import { Script } from 'node:vm'
 
-import { CANCELED_ERROR_MSG } from '@any-listen/common/constants'
 import { LX_SOURCE_COMMANDS, LX_SOURCE_LOADER } from '@any-listen/common/command'
+import { CANCELED_ERROR_MSG } from '@any-listen/common/constants'
 import { toMD5 } from '@any-listen/nodejs'
 import { request, type NeedBodyType } from '@any-listen/nodejs/request'
 
+import { probeMusicUrl } from '../../resources/probeMusicUrl'
+import {
+  raceSourcesWithHedge,
+  SourceAttemptTimeoutError,
+  SourceHealthTracker,
+  UnsupportedSourceError,
+  waitForSource,
+} from '../../resources/sourceRace'
+import { extensionEvent } from './event'
 import { createCommon } from './extensionApis/common'
 import { createStore } from './extensionApis/storage'
 import { i18n } from './i18n'
 import { createBoxs } from './internalExtension/shared'
-import { getConfig } from './shared/configStore'
+import { LxSessionPool } from './lxSessionPool'
 import { updateExtensionSettings } from './shared'
+import { getConfig } from './shared/configStore'
 import { extensionState } from './state'
 import { openLxSource, verifyLxSource } from './verifyLxSource'
 
@@ -25,6 +35,59 @@ interface Source {
 }
 
 const MAX_SCRIPT_BYTES = 4 * 1024 * 1024
+const health = new SourceHealthTracker()
+const sessions = new LxSessionPool<Awaited<ReturnType<typeof openLxSource>>>((id) => health.clear(id))
+const sourceConfigs = new Map<string, { info: string; log: boolean }>()
+let configVersion = 0
+const sourceChanged = () => new UnsupportedSourceError(i18n.t('lx_link_stale'))
+
+extensionEvent.on('stoping', (id: string) => {
+  if (id !== LX_SOURCE_LOADER) return
+  configVersion++
+  for (const sourceId of sourceConfigs.keys()) sessions.evict(sourceId, sourceChanged())
+  sourceConfigs.clear()
+  health.clear()
+})
+
+extensionEvent.on('extenstionSettingUpdated', (id: string, keys: string[], setting: Record<string, unknown>) => {
+  if (
+    id !== LX_SOURCE_LOADER ||
+    !keys.some((key) => ['enabledScripts', 'importedScriptSources', 'enabledSourceLogout'].includes(key))
+  ) {
+    return
+  }
+  configVersion++
+  const enabled = setting.enabledScripts as string[] | undefined
+  const sources = setting.importedScriptSources as Source[] | undefined
+  for (const [sourceId, snapshot] of sourceConfigs) {
+    const current = sources?.find((source) => source.id === sourceId)
+    const log = keys.includes('enabledSourceLogout') ? setting.enabledSourceLogout === true : snapshot.log
+    if (
+      (!enabled || enabled.includes(sourceId)) &&
+      (!sources || (current && JSON.stringify(current) === snapshot.info)) &&
+      log === snapshot.log
+    ) {
+      continue
+    }
+    sessions.evict(sourceId, sourceChanged())
+    sourceConfigs.delete(sourceId)
+    health.clear(sourceId)
+  }
+})
+
+const acquireSession = (extension: AnyListen.Extension.Extension, info: Source, log: boolean) => {
+  return sessions.acquire(info.id, async (signal, broken) => {
+    const script = await createStore(extension.dataDirectory).readFile(`scripts/${info.id}`, 'utf-8')
+    return openLxSource(extension, info, script, {
+      log,
+      openSignal: signal,
+      onInvalidated: broken,
+      showUpdateAlert(message) {
+        if (info.allowShowUpdateAlert !== false) void createBoxs(createCommon(extension)).showMessage(`${info.name} · ${message}`)
+      },
+    })
+  })
+}
 
 const fetchScript = async (url: string) => {
   const { statusCode, body } = await request<NeedBodyType>(url, {
@@ -46,7 +109,7 @@ const fetchScript = async (url: string) => {
       .toString('utf8')
       .replace(/^\uFEFF/, '')
   } finally {
-    if (!body.destroyed) body.destroy()
+    if (!body.destroyed) body.on('error', () => {}).destroy()
   }
 }
 
@@ -58,7 +121,9 @@ const parseSource = (raw: string, url: URL, validate: boolean) => {
     new Script(raw)
   }
   const fields = new Map<string, string>()
-  for (const [, key, value] of (header?.[1] ?? '').matchAll(/^[ \t]*\*[ \t]*@(\w+)[ \t]+(.+?)[ \t]*$/gm)) fields.set(key, value.trim())
+  for (const [, key, value] of (header?.[1] ?? '').matchAll(/^[ \t]*\*[ \t]*@(\w+)[ \t]+(.+?)[ \t]*$/gm)) {
+    fields.set(key, value.trim())
+  }
   const fileName = url.pathname.split('/').pop() || 'remote_source.js'
   const version = fields.get('version')?.slice(0, 36) || ''
   const author = fields.get('author')?.slice(0, 56) || ''
@@ -104,11 +169,14 @@ export const manageLinkedLxSource = async (command: Command, sourceId?: string) 
     if (command !== LX_SOURCE_COMMANDS.add && !selected) throw new Error(i18n.t('lx_link_stale'))
     if (command === LX_SOURCE_COMMANDS.test && selected) {
       try {
-        const code = await createStore(ext.dataDirectory).readFile('scripts/' + selected.id, 'utf-8')
+        const code = await createStore(ext.dataDirectory).readFile(`scripts/${selected.id}`, 'utf-8')
         await verifyLxSource(ext, selected, code)
+        health.clear(selected.id)
         void ui.showMessage(i18n.t('lx_source_test_ok', { name: selected.name }))
       } catch (error) {
-        void ui.showMessage(i18n.t('lx_source_test_failed', { name: selected.name, message: (error as Error).message }), { type: 'error' })
+        void ui.showMessage(i18n.t('lx_source_test_failed', { name: selected.name, message: (error as Error).message }), {
+          type: 'error',
+        })
       }
       return
     }
@@ -207,7 +275,7 @@ export const exportTideSources = async (): Promise<AnyListen.IPCSync.TideSource[
   for (const id of ordered) {
     const source = byId.get(id)
     if (!source) continue
-    const script = await storage.readFile('scripts/' + id, 'utf-8')
+    const script = await storage.readFile(`scripts/${id}`, 'utf-8')
     result.push({ name: source.name, url: source.sourceUrl || '', enabled: enabled.includes(id), script })
   }
   return result
@@ -224,7 +292,7 @@ export const installTideSources = async (input: AnyListen.IPCSync.TideSource[]) 
     if (url.protocol !== 'https:' && url.protocol !== 'http:') throw Error('音源更新链接无效')
     const parsed = parseSource(row.script, url, false)
     const source = { ...parsed, name: row.name, sourceUrl: row.url || undefined }
-    if (!(await storage.fileExists('scripts/' + source.id))) await storage.writeFile('scripts/' + source.id, row.script)
+    if (!(await storage.fileExists(`scripts/${source.id}`))) await storage.writeFile(`scripts/${source.id}`, row.script)
     sources.push(source)
     if (row.enabled) enabled.push(source.id)
   }
@@ -239,55 +307,120 @@ const qualities = ['128k', '192k', '320k', 'wav', 'flac', 'flac24bit', 'dolby', 
 
 // The installed loader's isolate preload accepts LX Music's song fields.
 const toLxSong = ({ name, singer, interval, meta }: AnyListen.Music.MusicInfoOnline) => ({
-  name, singer, interval, source: meta.source, songmid: meta.musicId, albumName: meta.albumName,
-  albumId: meta.albumId, hash: meta.hash, strMediaMid: meta.strMediaMid, albumMid: meta.albumMid,
-  songId: meta.songId, copyrightId: meta.copyrightId, lrcUrl: meta.lrcUrl, mrcUrl: meta.mrcUrl, trcUrl: meta.trcUrl,
-  typeUrl: {}, types: Object.fromEntries(Object.entries(meta.qualitys ?? {}).map(([quality, { sizeStr, ...rest }]) =>
-    [quality, sizeStr == null ? rest : { ...rest, size: sizeStr }])),
+  name,
+  singer,
+  interval,
+  source: meta.source,
+  songmid: meta.musicId,
+  albumName: meta.albumName,
+  albumId: meta.albumId,
+  hash: meta.hash,
+  strMediaMid: meta.strMediaMid,
+  albumMid: meta.albumMid,
+  songId: meta.songId,
+  copyrightId: meta.copyrightId,
+  lrcUrl: meta.lrcUrl,
+  mrcUrl: meta.mrcUrl,
+  trcUrl: meta.trcUrl,
+  typeUrl: {},
+  types: Object.fromEntries(
+    Object.entries(meta.qualitys ?? {}).map(([quality, { sizeStr, ...rest }]) => [
+      quality,
+      sizeStr == null ? rest : { ...rest, size: sizeStr },
+    ])
+  ),
 })
 
-export async function resolveLxMusicUrl({ quality = '128k', musicInfo }: AnyListen.IPCExtension.MusicUrlParams) {
+export async function resolveLxMusicUrl(
+  { quality = '128k', musicInfo }: AnyListen.IPCExtension.MusicUrlParams,
+  signal?: AbortSignal
+) {
   const extension = getTideLoader()
+  const version = configVersion
   const config = await getConfig(extension)
+  if (version !== configVersion) throw sourceChanged()
+  const log = config.enabledSourceLogout === true
   const byId = new Map(((config.importedScriptSources ?? []) as Source[]).map((s) => [s.id, s]))
-  const ids = new Set((config.enabledScripts ?? []) as string[])
-  const sessions = new Map<string, Awaited<ReturnType<typeof openLxSource>>>()
-  const storage = createStore(extension.dataDirectory)
-  const song = toLxSong(musicInfo)
-  const available = qualities.slice(0, qualities.indexOf(quality) + 1).reverse()
-  let lastError = i18n.t('lx_source_no_match')
-  try {
-    for (const type of available.length ? available : [quality]) {
-      for (const id of ids) {
-        const info = byId.get(id)
-        if (!info) continue
-        try {
-          let session = sessions.get(id)
-          if (!session) {
-            const script = await storage.readFile('scripts/' + id, 'utf-8')
-            session = await openLxSource(extension, info, script, config.enabledSourceLogout === true, (message) => {
-              if (info.allowShowUpdateAlert !== false) void createBoxs(createCommon(extension)).showMessage(info.name + ' · ' + message)
-            })
-            sessions.set(id, session)
-          }
-          if (!session.platforms[musicInfo.meta.source]?.includes(type)) continue
-          const url = new URL(await session.getMusicUrl(song, type))
-          if (!['http:', 'https:'].includes(url.protocol)) throw new Error(i18n.t('lx_link_invalid_url'))
-          const res = await request<NeedBodyType>(url.href, {
-            headers: { range: 'bytes=0-1' }, retryNum: 0, needBody: true, signal: AbortSignal.timeout(15000),
-          })
-          res.body.destroy()
-          if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) throw new Error('HTTP ' + res.statusCode)
-          const playable = await extensionState.remoteFuncs.createProxyUrl(res.history.at(-1) || url.href, {}, config.enabledCache === true)
-          return { url: playable, quality: type }
-        } catch (error) {
-          ids.delete(id)
-          lastError = info.name + ' · ' + (error as Error).message
-        }
-      }
+  const snapshots = new Map<string, { info: string; log: boolean }>()
+  const sources = [...new Set((config.enabledScripts ?? []) as string[])].flatMap((id) => {
+    const info = byId.get(id)
+    if (!info) return []
+    const serialized = JSON.stringify(info)
+    const previous = sourceConfigs.get(id)
+    if (previous && (previous.info !== serialized || previous.log !== log)) {
+      sessions.evict(id, sourceChanged())
+      health.clear(id)
     }
-    throw new Error(lastError)
-  } finally {
-    await Promise.all([...sessions.values()].map(async (session) => session.close()))
+    const snapshot = previous?.info === serialized && previous.log === log ? previous : { info: serialized, log }
+    sourceConfigs.set(id, snapshot)
+    snapshots.set(id, snapshot)
+    return [info]
+  })
+  const song = toLxSong(musicInfo)
+  const platform = musicInfo.meta.source
+  const getKey = (info: Source) => `${info.id}::${platform}`
+  const available = qualities.slice(0, qualities.indexOf(quality) + 1).reverse()
+  let lastError: Error = new UnsupportedSourceError(i18n.t('lx_source_no_match'))
+  const unavailable = new Set<string>()
+  for (const type of available.length ? available : [quality]) {
+    const candidates = sources.filter(({ id }) => {
+      if (unavailable.has(id)) return false
+      const session = sessions.peek(id)
+      return !session || session.closed || session.platforms[platform]?.includes(type)
+    })
+    let finalUrl: string
+    try {
+      finalUrl = await raceSourcesWithHedge({
+        candidates: health.rankCandidates(candidates, getKey),
+        getKey,
+        healthTracker: health,
+        signal,
+        async execute(info, attemptSignal) {
+          if (sourceConfigs.get(info.id) !== snapshots.get(info.id)) {
+            throw new UnsupportedSourceError(i18n.t('lx_link_stale'))
+          }
+          const lease = acquireSession(extension, info, log)
+          const requestSignal = AbortSignal.any([lease.signal, attemptSignal])
+          let completed = false
+          try {
+            let session: Awaited<typeof lease.opening>
+            try {
+              session = await waitForSource(lease.opening, requestSignal)
+            } catch (error) {
+              if (!attemptSignal.aborted) unavailable.add(info.id)
+              throw error
+            }
+            if (!session.platforms[platform]?.includes(type)) {
+              if (!session.platforms[platform]) unavailable.add(info.id)
+              throw new UnsupportedSourceError(i18n.t('lx_source_no_match'))
+            }
+            const url = new URL(await session.getMusicUrl(song, type, { signal: requestSignal }))
+            if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
+              throw new Error(i18n.t('lx_link_invalid_url'))
+            }
+            const playable = await probeMusicUrl(url.href, requestSignal)
+            completed = true
+            return playable
+          } catch (error) {
+            lease.signal.throwIfAborted()
+            if (error instanceof UnsupportedSourceError || attemptSignal.aborted) throw error
+            completed = true
+            throw new Error(`${info.name} · ${(error as Error).message}`, { cause: error })
+          } finally {
+            lease.release(
+              attemptSignal.reason instanceof SourceAttemptTimeoutError ? 'timeout' : completed ? 'completed' : undefined
+            )
+          }
+        },
+      })
+    } catch (error) {
+      signal?.throwIfAborted()
+      if (!(error instanceof UnsupportedSourceError)) lastError = error instanceof Error ? error : new Error(String(error))
+      continue
+    }
+    signal?.throwIfAborted()
+    const playable = await extensionState.remoteFuncs.createProxyUrl(finalUrl, {}, config.enabledCache === true, true)
+    return { url: playable, quality: type }
   }
+  throw lastError
 }

@@ -299,7 +299,7 @@ declare namespace AnyListen {
       onExtensionEvent: (action: EventExtension) => Promise<void>
       // getConnectedClients: () => Promise<string[]>
       // showMessage: (message: string) => Promise<string[]>
-      createProxyUrl: (url: string, reqOptions?: unknown, enabledCache?: boolean) => Promise<string>
+      createProxyUrl: (url: string, reqOptions?: unknown, enabledCache?: boolean, skipVerify?: boolean) => Promise<string>
       checkProxyCache: (url: string) => Promise<boolean>
       writeProxyCache: (fileName: string, data: Uint8Array) => Promise<string>
 

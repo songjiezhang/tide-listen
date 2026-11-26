@@ -65,7 +65,7 @@ final class AppUpdater {
               || release.optBoolean("prerelease")
               || !tag.matches("v[0-9]+\\.[0-9]+\\.[0-9]+")) throw new IOException("发布版本格式异常");
           String version = tag.substring(1);
-          if (compare(version, BuildConfig.VERSION_NAME) <= 0)
+          if (compareStableToInstalled(version, BuildConfig.VERSION_NAME) <= 0)
             return () -> message("当前已是最新版本 " + BuildConfig.VERSION_NAME);
           String name = "TideListen-" + BuildConfig.EDITION + "-" + version + ".apk";
           String url = REPOSITORY + "/releases/download/" + tag + "/" + name;
@@ -140,13 +140,14 @@ final class AppUpdater {
         });
   }
 
-  static int compare(String left, String right) {
-    String[] a = left.split("\\."), b = right.split("\\.");
+  static int compareStableToInstalled(String stable, String installed) {
+    String[] release = stable.split("\\.");
+    String[] current = installed.split("[.-]", 4);
     for (int i = 0; i < 3; i++) {
-      int order = Integer.compare(Integer.parseInt(a[i]), Integer.parseInt(b[i]));
+      int order = Integer.compare(Integer.parseInt(release[i]), Integer.parseInt(current[i]));
       if (order != 0) return order;
     }
-    return 0;
+    return current.length > 3 ? 1 : 0;
   }
 
   private void download(String url, long expected, String hash, String version) {

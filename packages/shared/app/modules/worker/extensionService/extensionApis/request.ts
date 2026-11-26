@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
+
 import { cloneData } from '@any-listen/common/utils'
 import { request as rawRequest } from '@any-listen/nodejs/request'
 
@@ -5,14 +7,17 @@ type RequestOptions = Omit<AnyListen.IPCExtension.RequestOptions, 'signal'> & { 
 type Response<Resp> = AnyListen.IPCExtension.Response<Resp>
 // type RespCallback<Resp> = AnyListen.IPCExtension.RespCallback<Resp>
 
+export const resourceRequestSignal = new AsyncLocalStorage<AbortSignal>()
+
 const requestSignalMap = new Map<string, AbortController>()
 const request = async <Resp = unknown>(url: string, options: RequestOptions = {}): Promise<Response<Resp>> => {
   options = cloneData(options)
-  let signal: AbortSignal | undefined
+  let signal = resourceRequestSignal.getStore()
+  signal?.throwIfAborted()
   if (options.requestKey) {
     const controller = new AbortController()
     requestSignalMap.set(options.requestKey, controller)
-    signal = controller.signal
+    signal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
   }
   return rawRequest<Resp>(url, {
     signal,

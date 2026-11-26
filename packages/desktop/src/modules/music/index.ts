@@ -21,8 +21,10 @@ export const getMusicUrl = async ({
   musicInfo,
   quality,
   isRefresh = false,
+  signal,
 }: {
   musicInfo: AnyListen.Music.MusicInfo
+  signal?: AbortSignal
   isRefresh?: boolean
   quality?: string
 }): Promise<AnyListen.IPCMusic.MusicUrlInfo> => {
@@ -37,7 +39,7 @@ export const getMusicUrl = async ({
   } else {
     // return getOnlineMusicUrl({ musicInfo, isRefresh, quality })
   }
-  return getOnlineMusicUrl({ musicInfo, isRefresh, quality })
+  return getOnlineMusicUrl({ musicInfo, isRefresh, quality, signal })
   // if ('progress' in musicInfo) {
   //   return getDownloadMusicUrl({ musicInfo, isRefresh })
   // } else if (musicInfo.source == 'local') {

@@ -47,8 +47,10 @@ export const getMusicUrl = async ({
   musicInfo,
   quality,
   isRefresh = false,
+  signal,
 }: {
   musicInfo: AnyListen.Music.MusicInfo
+  signal?: AbortSignal
   isRefresh?: boolean
   quality?: string
 }): Promise<AnyListen.IPCMusic.MusicUrlInfo> => {
@@ -56,11 +58,14 @@ export const getMusicUrl = async ({
   const id = buildMusicCacheId(musicInfo, targetQuality)
   const cachedUrl = await workers.dbService.getMusicUrl(id)
   if (cachedUrl && !isRefresh) return { isFromCache: true, quality: targetQuality, url: cachedUrl }
+  signal?.throwIfAborted()
   const info = await getMusicUrlResource({
+    signal,
     musicInfo,
     quality: targetQuality,
     type: getFileType(targetQuality),
   })
+  signal?.throwIfAborted()
   void workers.dbService.musicUrlSave([{ id, url: info.url }])
   return {
     quality: info.quality,

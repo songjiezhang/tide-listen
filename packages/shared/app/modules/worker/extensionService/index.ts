@@ -2,12 +2,15 @@ import { LX_SOURCE_LOADER } from '@any-listen/common/command'
 import { setGHMirrorHosts } from '@any-listen/nodejs/mirrorReuqest'
 import { setProxyByHost } from '@any-listen/nodejs/request'
 
+import { UnsupportedSourceError, waitForSource } from '../../resources/sourceRace'
 import { exposeWorker } from '../utils/worker'
 import { registerErrorHandler } from './errorHandler'
 import { extensionEvent } from './event'
 import { executeCommand } from './extensionApis/command'
+import { resourceRequestSignal } from './extensionApis/request'
 import { initI18n } from './i18n'
 import { internalExtensionContextState } from './internalExtension/state'
+import { exportTideSources, installTideSources, manageLinkedLxSource, resolveLxMusicUrl } from './linkedLxSources'
 import {
   disableExtension,
   downloadAndParseExtension,
@@ -28,7 +31,6 @@ import {
   getOnlineTags,
   initOnlineList,
 } from './onlineExtension'
-import { exportTideSources, installTideSources, manageLinkedLxSource, resolveLxMusicUrl } from './linkedLxSources'
 import { resetI18n } from './onlineExtension/i18n'
 import {
   buildExtensionSettings,
@@ -42,6 +44,8 @@ import { extensionState } from './state'
 import { listProviderAction, resourceAction, updateI18nMessage, updateLocale } from './vm'
 
 registerErrorHandler()
+
+const resourceRequests = new Map<string, AbortController>()
 
 const extension = {
   manageLinkedLxSource,
@@ -161,16 +165,45 @@ const extension = {
   // async resourceAction(extId: string, config: Record<string, unknown>) {
   //   await updateExtensionSettings(extId, config)
   // },
+  // message2call transports error messages, so carry unsupported capabilities as data.
+  async requestMusicUrl(
+    params: AnyListen.IPCExtension.MusicUrlParams,
+    requestId?: string
+  ): Promise<AnyListen.IPCExtension.MusicUrlInfo | { skipped: string }> {
+    try {
+      return await extension.resourceAction('musicUrl', params, requestId)
+    } catch (error) {
+      if (error instanceof UnsupportedSourceError) return { skipped: error.message }
+      throw error
+    }
+  },
+  async cancelResourceAction(requestId: string) {
+    resourceRequests.get(requestId)?.abort()
+  },
   async resourceAction<T extends keyof AnyListen.IPCExtension.ResourceAction>(
     action: T,
-    params: Parameters<AnyListen.IPCExtension.ResourceAction[T]>[0]
+    params: Parameters<AnyListen.IPCExtension.ResourceAction[T]>[0],
+    requestId?: string
   ): Promise<Awaited<ReturnType<AnyListen.IPCExtension.ResourceAction[T]>>> {
-    const context = internalExtensionContextState.contexts.get(params.extensionId)
-    if (context) return context.context.resourceAction!(action, params)
-    if (import.meta.env.VITE_IS_DESKTOP && params.extensionId === LX_SOURCE_LOADER && action === 'musicUrl') {
-      return await resolveLxMusicUrl(params as AnyListen.IPCExtension.MusicUrlParams) as Awaited<ReturnType<AnyListen.IPCExtension.ResourceAction[T]>>
+    if (requestId && resourceRequests.has(requestId)) throw new Error('Duplicate resource request ID')
+    const controller = requestId ? new AbortController() : undefined
+    if (requestId && controller) resourceRequests.set(requestId, controller)
+    const run = async () => {
+      const context = internalExtensionContextState.contexts.get(params.extensionId)
+      if (context) return context.context.resourceAction!(action, params)
+      if (import.meta.env.VITE_IS_DESKTOP && params.extensionId === LX_SOURCE_LOADER && action === 'musicUrl') {
+        return (await resolveLxMusicUrl(params as AnyListen.IPCExtension.MusicUrlParams, controller?.signal)) as Awaited<
+          ReturnType<AnyListen.IPCExtension.ResourceAction[T]>
+        >
+      }
+      return resourceAction(action, params)
     }
-    return resourceAction(action, params)
+    try {
+      return await (controller ? waitForSource(resourceRequestSignal.run(controller.signal, run), controller.signal) : run())
+    } finally {
+      controller?.abort()
+      if (requestId) resourceRequests.delete(requestId)
+    }
   },
   async listProviderAction<T extends keyof AnyListen.IPCExtension.ListProviderAction>(
     action: T,

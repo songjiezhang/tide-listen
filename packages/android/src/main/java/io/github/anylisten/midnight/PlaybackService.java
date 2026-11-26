@@ -24,6 +24,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import okhttp3.OkHttpClient;
 import org.json.*;
 
 @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
@@ -79,8 +80,15 @@ public final class PlaybackService extends MediaSessionService {
     notifications.setSmallIcon(R.drawable.tidelisten_note);
     setMediaNotificationProvider(notifications);
     MusicStore store = MusicStore.get(this);
-    DataSource.Factory upstream = new DefaultDataSource.Factory(this);
-    DataSource.Factory data = () -> new LxDataSource(this, store, upstream.createDataSource());
+    DataSource.Factory upstream = new DefaultDataSource.Factory(this,
+        new DefaultHttpDataSource.Factory().setConnectTimeoutMs(6000).setReadTimeoutMs(8000)
+            .setAllowCrossProtocolRedirects(true));
+    OkHttpClient onlineHttp = new OkHttpClient.Builder()
+        .connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(false)
+        .build();
+    DataSource.Factory data = () -> new LxDataSource(this, store, upstream, onlineHttp);
     ExoPlayer player =
         new ExoPlayer.Builder(this)
             .setMediaSourceFactory(new DefaultMediaSourceFactory(this).setDataSourceFactory(data))
