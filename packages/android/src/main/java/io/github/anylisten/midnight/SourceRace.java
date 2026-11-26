@@ -55,10 +55,12 @@ final class SourceRace<T, R> {
 
   static final class Failure extends IOException {
     final int attempts;
+    final List<String> errors;
 
-    Failure(int attempts, Exception error) {
+    Failure(int attempts, Exception error, List<String> errors) {
       super(error == null ? "" : error.getMessage(), error);
       this.attempts = attempts;
+      this.errors = errors == null ? java.util.Collections.emptyList() : errors;
     }
   }
 
@@ -69,6 +71,7 @@ final class SourceRace<T, R> {
   private final Close<R> close;
   private final long hedgeDelayMs, timeoutMs;
   private final List<Attempt> running = new ArrayList<>();
+  private final List<String> failureMessages = new ArrayList<>();
   private ScheduledFuture<?> hedge;
   private long lastLaunch;
   private Exception lastError;
@@ -98,7 +101,7 @@ final class SourceRace<T, R> {
         schedule();
         while (!done) wait();
         if (canceled || Thread.currentThread().isInterrupted()) throw new InterruptedException();
-        if (winner == null) throw new Failure(failures, lastError);
+        if (winner == null) throw new Failure(failures, lastError, new ArrayList<>(failureMessages));
         R result = winner;
         winner = null;
         return result;
@@ -178,6 +181,10 @@ final class SourceRace<T, R> {
       if (attempt.observer != null) attempt.observer.record(timedOut || error instanceof TimeoutException);
       failures++;
       lastError = error;
+      String msg = error == null || error.getMessage() == null ? "" : error.getMessage().trim();
+      if (!msg.isEmpty() && !failureMessages.contains(msg) && failureMessages.size() < 6) {
+        failureMessages.add(msg);
+      }
     }
     schedule();
   }

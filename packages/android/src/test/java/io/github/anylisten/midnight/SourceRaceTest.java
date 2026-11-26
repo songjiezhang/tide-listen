@@ -292,4 +292,49 @@ public class SourceRaceTest {
     clock.addAndGet(5000);
     assertNull(cache.get("song2::320k"));
   }
+
+  @Test
+  public void trackMatcherPicksEquivalentSongAcrossPlatforms() {
+    List<TrackMatcher.Candidate> rows =
+        Arrays.asList(
+            new TrackMatcher.Candidate("kw_1", "晴天 (Live)", "周杰伦", "演唱会", "05:10"),
+            new TrackMatcher.Candidate("kw_2", "晴天", "周杰伦", "叶惠美", "04:29"));
+    assertEquals(1, TrackMatcher.pickBestIndex("晴天", "周杰伦", "叶惠美", "04:29", rows));
+    assertEquals(Arrays.asList("kw", "kg", "wy", "mg"), TrackMatcher.fallbackPlatforms("tx"));
+    assertEquals(269, TrackMatcher.parseIntervalSeconds("04:29"));
+  }
+
+  @Test
+  public void resolveQualitiesUsesTrackMetadataAndAutoFallback() {
+    java.util.Set<String> declared = new java.util.HashSet<>(Arrays.asList("128k", "320k"));
+    assertEquals(
+        Arrays.asList("320k", "128k"), LxSources.resolveQualitiesForDeclared("flac", declared));
+    assertEquals(
+        Arrays.asList("320k", "128k"), LxSources.resolveQualitiesForDeclared("auto", declared));
+    assertEquals(
+        Arrays.asList("320k", "128k", "flac", "flac24bit"),
+        LxSources.resolveQualitiesForDeclared("auto", Collections.emptySet()));
+  }
+
+  @Test(timeout = 2000)
+  public void failureCollectsUniqueReadableReasons() throws Exception {
+    SourceRace<String, String> race =
+        new SourceRace<>(
+            Arrays.asList("a", "b", "c"),
+            new SourceHealthTracker(),
+            SourceRaceTest::key,
+            (source, control) -> {
+              throw new IOException(source.equals("c") ? "a · timeout" : source + " · timeout");
+            },
+            result -> {},
+            60_000,
+            1000);
+    try {
+      race.await();
+      fail("expected failure");
+    } catch (SourceRace.Failure error) {
+      assertEquals(3, error.attempts);
+      assertEquals(Arrays.asList("a · timeout", "b · timeout"), error.errors);
+    }
+  }
 }

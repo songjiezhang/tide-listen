@@ -30,9 +30,12 @@ final class LxEngine implements LxEnginePool.Engine {
           .build();
   private static final OkHttpClient SCRIPT_HTTP =
       HTTP.newBuilder()
-          .connectTimeout(5, TimeUnit.SECONDS)
-          .readTimeout(8, TimeUnit.SECONDS)
+          .connectTimeout(8, TimeUnit.SECONDS)
+          .readTimeout(15, TimeUnit.SECONDS)
+          .callTimeout(25, TimeUnit.SECONDS)
           .build();
+  private static final long DEFAULT_SCRIPT_TIMEOUT_MS = 13_000;
+  private static final long MAX_SCRIPT_TIMEOUT_MS = 20_000;
   private static volatile boolean quickJsReady;
   static final int SCRIPT_LIMIT = 2 * 1024 * 1024;
   private static final long INIT_TIMEOUT_MS = 12_000;
@@ -141,7 +144,9 @@ final class LxEngine implements LxEnginePool.Engine {
             js = QuickJSContext.create();
             js.setMemoryLimit(48 * 1024 * 1024);
             js.evaluate(
-                "globalThis.console = { log(){}, info(){}, warn(){}, error(){}, debug(){} }");
+                "globalThis.console = { log(){}, info(){}, warn(){}, error(){}, debug(){},"
+                    + " group(){}, groupEnd(){}, groupCollapsed(){}, time(){}, timeEnd(){},"
+                    + " trace(){}, clear(){} }");
             bind();
             js.evaluate(preload);
             js.getGlobalObject()
@@ -187,7 +192,7 @@ final class LxEngine implements LxEnginePool.Engine {
       hadResolve = true;
       pendingRequests.put(reqId, pending);
       handler.post(() -> {
-        if (pendingRequests.containsKey(reqId)) send("request", payload);
+        if (pendingRequests.containsKey(reqId)) sendForRequest(reqId, payload);
       });
     }
     boolean completed = false;
@@ -226,11 +231,21 @@ final class LxEngine implements LxEnginePool.Engine {
     });
   }
 
+  private static IOException formatQuickJsError(QuickJSException error) {
+    String detail =
+        error.getMessage() == null
+            ? ""
+            : error
+                .getMessage()
+                .split("[\r\n]", 2)[0]
+                .replaceFirst("^(?:UnhandledPromiseRejectionException:\\s*)?(?:Error:\\s*)?", "")
+                .trim();
+    return new IOException(detail.isEmpty() ? "音源脚本运行失败" : detail, error);
+  }
+
   private void fail(Exception error) {
     if (error instanceof QuickJSException) {
-      String detail = error.getMessage() == null ? "" : error.getMessage().split("[\r\n]", 2)[0]
-          .replaceFirst("^(?:UnhandledPromiseRejectionException:\\s*)?(?:Error:\\s*)?", "").trim();
-      error = new IOException(detail.isEmpty() ? "音源脚本运行失败" : detail, error);
+      error = formatQuickJsError((QuickJSException) error);
     }
     synchronized (this) {
       if (ended) return;
@@ -245,6 +260,20 @@ final class LxEngine implements LxEnginePool.Engine {
     if (ended) return;
     try {
       js.getGlobalObject().getJSFunction("__lx_native__").call(key, action, data.toString());
+    } catch (Exception e) {
+      fail(e);
+    }
+  }
+
+  private void sendForRequest(String reqId, Object data) {
+    if (ended) return;
+    try {
+      js.getGlobalObject().getJSFunction("__lx_native__").call(key, "request", data.toString());
+    } catch (QuickJSException e) {
+      // Match lx-music-mobile QuickJS.java: isolate a per-track script exception instead of tearing
+      // down a healthy reusable engine unless the runtime itself is broken.
+      PendingCall pending = pendingRequests.get(reqId);
+      if (pending != null) pending.complete(null, formatQuickJsError(e));
     } catch (Exception e) {
       fail(e);
     }
@@ -364,6 +393,17 @@ final class LxEngine implements LxEnginePool.Engine {
     }
   }
 
+  private static String findHeader(JSONObject headers, String target) {
+    if (headers == null) return null;
+    for (Iterator<String> it = headers.keys(); it.hasNext(); ) {
+      String key = it.next();
+      if (target.equalsIgnoreCase(key) && !headers.isNull(key)) {
+        return String.valueOf(headers.opt(key));
+      }
+    }
+    return null;
+  }
+
   private void request(JSONObject msg) throws Exception {
     String id = msg.getString("requestKey");
     try {
@@ -375,7 +415,7 @@ final class LxEngine implements LxEnginePool.Engine {
           new Request.Builder()
               .url(msg.getString("url"))
               .header("User-Agent", LxDataSource.STREAM_USER_AGENT)
-              .header("Accept", "application/json");
+              .header("Accept", "*/*");
       if (h != null)
         for (Iterator<String> it = h.keys(); it.hasNext(); ) {
           String k = it.next();
@@ -387,29 +427,43 @@ final class LxEngine implements LxEnginePool.Engine {
         FormBody.Builder f = new FormBody.Builder();
         for (Iterator<String> it = form.keys(); it.hasNext(); ) {
           String k = it.next();
-          f.add(k, form.getString(k));
+          if (!form.isNull(k)) f.add(k, String.valueOf(form.get(k)));
         }
         body = f.build();
       } else if (multipart != null) {
         MultipartBody.Builder f = new MultipartBody.Builder().setType(MultipartBody.FORM);
         for (Iterator<String> it = multipart.keys(); it.hasNext(); ) {
           String k = it.next();
-          f.addFormDataPart(k, multipart.getString(k));
+          if (!multipart.isNull(k)) f.addFormDataPart(k, String.valueOf(multipart.get(k)));
         }
         body = f.build();
       } else if (!method.equals("GET")
           && !method.equals("HEAD")
           && (o.has("body") || Arrays.asList("POST", "PUT", "PATCH").contains(method))) {
-        String type =
-            h == null
-                ? "application/json"
-                : h.optString("Content-Type", h.optString("content-type", "application/json"));
-        body = RequestBody.create(o.optString("body", ""), MediaType.parse(type));
+        Object rawBody = o.isNull("body") ? null : o.opt("body");
+        String explicitType = findHeader(h, "Content-Type");
+        if (o.optBoolean("binary") && rawBody instanceof JSONArray) {
+          JSONArray arr = (JSONArray) rawBody;
+          byte[] rawBytes = new byte[arr.length()];
+          for (int i = 0; i < arr.length(); i++) rawBytes[i] = (byte) (arr.optInt(i) & 0xff);
+          String type = explicitType != null ? explicitType : "application/octet-stream";
+          body = RequestBody.create(rawBytes, MediaType.parse(type));
+        } else if (rawBody instanceof String) {
+          String type = explicitType != null ? explicitType : "text/plain; charset=utf-8";
+          body = RequestBody.create((String) rawBody, MediaType.parse(type));
+        } else {
+          String type = explicitType != null ? explicitType : "application/json; charset=utf-8";
+          body = RequestBody.create(rawBody == null ? "" : rawBody.toString(), MediaType.parse(type));
+        }
       }
       Call call = SCRIPT_HTTP.newCall(req.method(method, body).build());
       call.timeout()
           .timeout(
-              Math.max(1, Math.min(15000, o.optLong("timeout", SourceRace.ATTEMPT_TIMEOUT_MS))), TimeUnit.MILLISECONDS);
+              Math.max(
+                  1,
+                  Math.min(
+                      MAX_SCRIPT_TIMEOUT_MS, o.optLong("timeout", DEFAULT_SCRIPT_TIMEOUT_MS))),
+              TimeUnit.MILLISECONDS);
       synchronized (this) {
         if (ended) return;
         if (initialized.getCount() == 0 && hadResolve && pendingRequests.isEmpty()) {

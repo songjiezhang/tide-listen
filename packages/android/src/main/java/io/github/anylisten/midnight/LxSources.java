@@ -296,6 +296,8 @@ final class LxSources {
   // Use the same quality ladder as the desktop LX source loader.
   private static final List<String> QUALITY_ORDER =
       Arrays.asList("128k", "192k", "320k", "wav", "flac", "flac24bit", "dolby", "master");
+  private static final List<String> AUTO_QUALITY_ORDER =
+      Arrays.asList("320k", "128k", "flac", "flac24bit");
 
   static List<String> playbackQualities(String preferred) {
     int index = QUALITY_ORDER.indexOf(preferred);
@@ -303,6 +305,65 @@ final class LxSources {
     List<String> result = new ArrayList<>();
     for (int i = index; i >= 0; i--) result.add(QUALITY_ORDER.get(i));
     return result;
+  }
+
+  /**
+   * Builds the concrete quality order for playback, prioritizing qualities declared by the song's
+   * metadata (matching lx-music-mobile's getPlayQuality) while keeping lower fallbacks available.
+   */
+  static List<String> resolveQualities(String preferred, JSONObject music) {
+    return resolveQualitiesForDeclared(preferred, declaredQualities(music));
+  }
+
+  static List<String> resolveQualitiesForDeclared(
+      String preferred, java.util.Set<String> declared) {
+    List<String> base =
+        "auto".equals(preferred) || !QUALITY_ORDER.contains(preferred)
+            ? new ArrayList<>(AUTO_QUALITY_ORDER)
+            : playbackQualities(preferred);
+    if (declared == null || declared.isEmpty()) return base;
+    List<String> prioritized = new ArrayList<>();
+    for (String q : base) {
+      if (declared.contains(q)) prioritized.add(q);
+    }
+    // Always keep 128k as a final safety fallback even if metadata omitted it.
+    if (!prioritized.contains("128k")) prioritized.add("128k");
+    return prioritized.isEmpty() ? base : prioritized;
+  }
+
+  private static java.util.Set<String> declaredQualities(JSONObject music) {
+    java.util.Set<String> set = new java.util.LinkedHashSet<>();
+    if (music == null) return set;
+    collectQualityKeys(set, music.opt("_types"));
+    collectQualityKeys(set, music.opt("types"));
+    JSONObject meta = music.optJSONObject("meta");
+    if (meta != null) {
+      collectQualityKeys(set, meta.opt("_qualitys"));
+      collectQualityKeys(set, meta.opt("qualitys"));
+    }
+    return set;
+  }
+
+  private static void collectQualityKeys(java.util.Set<String> out, Object raw) {
+    if (raw instanceof JSONObject) {
+      JSONObject obj = (JSONObject) raw;
+      for (java.util.Iterator<String> it = obj.keys(); it.hasNext(); ) {
+        String key = it.next();
+        if (!obj.isNull(key) && QUALITY_ORDER.contains(key)) out.add(key);
+      }
+    } else if (raw instanceof JSONArray) {
+      JSONArray arr = (JSONArray) raw;
+      for (int i = 0; i < arr.length(); i++) {
+        JSONObject item = arr.optJSONObject(i);
+        if (item != null) {
+          String type = item.optString("type");
+          if (QUALITY_ORDER.contains(type)) out.add(type);
+        } else {
+          String type = arr.optString(i);
+          if (QUALITY_ORDER.contains(type)) out.add(type);
+        }
+      }
+    }
   }
 
   static boolean includes(JSONArray values, String value) {

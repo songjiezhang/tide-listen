@@ -87,6 +87,47 @@ globalThis.lx_setup = (key, id, name, description, version, author, homepage, ra
     tagret.callback(...tagret.params)
   }
 
+  const b64Chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+  function bytesToBase64(bytes) {
+    let out = ''
+    for (let i = 0; i < bytes.length; i += 3) {
+      const b0 = bytes[i] & 255
+      const has1 = i + 1 < bytes.length
+      const has2 = i + 2 < bytes.length
+      const b1 = has1 ? (bytes[i + 1] & 255) : 0
+      const b2 = has2 ? (bytes[i + 2] & 255) : 0
+      const n = (b0 << 16) | (b1 << 8) | b2
+      out += b64Chars[(n >> 18) & 63]
+      out += b64Chars[(n >> 12) & 63]
+      out += has1 ? b64Chars[(n >> 6) & 63] : '='
+      out += has2 ? b64Chars[n & 63] : '='
+    }
+    return out
+  }
+  const _setInterval = (callback, timeout = 0, ...params) => {
+    if (typeof callback !== 'function') throw new Error('callback required a function')
+    if (typeof timeout !== 'number' || timeout < 0) throw new Error('timeout required a number')
+    const interval = { active: true, id: 0 }
+    const schedule = () => {
+      if (!interval.active) return
+      interval.id = _setTimeout(() => {
+        if (!interval.active) return
+        try {
+          callback(...params)
+        } finally {
+          schedule()
+        }
+      }, timeout)
+    }
+    schedule()
+    return interval
+  }
+  const _clearInterval = (interval) => {
+    if (!interval || typeof interval !== 'object') return
+    interval.active = false
+    _clearTimeout(interval.id)
+  }
+
   // 将字节数组解码为字符串（UTF-8）
   function bytesToString(bytes) {
     let result = ''
@@ -412,7 +453,7 @@ globalThis.lx_setup = (key, id, name, description, version, author, homepage, ra
             case 'hex':
               return new Uint8Array(buf).reduce((str, byte) => str + byte.toString(16).padStart(2, '0'), '')
             case 'base64':
-              return nativeFuncs.utils_str2b64(bytesToString(Array.from(buf)))
+              return bytesToBase64(ArrayBuffer.isView(buf) ? new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength) : buf)
             case 'utf8':
             case 'utf-8':
             default:
@@ -459,9 +500,13 @@ globalThis.lx_setup = (key, id, name, description, version, author, homepage, ra
       //   // data.content_type = 'multipart/form-data'
       //   options.json = false
       // }
+      let reqBody = body
+      if (binary && (ArrayBuffer.isView(body) || Array.isArray(body))) {
+        reqBody = Array.from(ArrayBuffer.isView(body) ? new Uint8Array(body.buffer, body.byteOffset, body.byteLength) : body)
+      }
       if (timeout && typeof timeout == 'number' && timeout > 0) options.timeout = Math.min(timeout, 60_000)
 
-      let request = sendNativeRequest(url, { method, body, form, formData, ...options }, (err, resp) => {
+      let request = sendNativeRequest(url, { method, body: reqBody, form, formData, ...options }, (err, resp) => {
         if (err) {
           callback(err, null, null)
         } else {
@@ -526,6 +571,8 @@ globalThis.lx_setup = (key, id, name, description, version, author, homepage, ra
 
   globalThis.setTimeout = _setTimeout
   globalThis.clearTimeout = _clearTimeout
+  globalThis.setInterval = _setInterval
+  globalThis.clearInterval = _clearInterval
 
   const freezeObject = (obj) => {
     if (typeof obj != 'object') return

@@ -30,7 +30,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import okhttp3.OkHttpClient;
-import okhttp3.Protocol;
 import org.json.*;
 
 @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
@@ -101,9 +100,8 @@ public final class PlaybackService extends MediaSessionService {
             .setAllowCrossProtocolRedirects(true));
     onlineHttp = new OkHttpClient.Builder()
         .dns(PreferIpv4Dns.INSTANCE)
-        .protocols(Collections.singletonList(Protocol.HTTP_1_1))
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(8, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(12, TimeUnit.SECONDS)
         .build();
     DataSource.Factory data = () -> new LxDataSource(this, store, upstream, onlineHttp);
     DefaultLoadControl loadControl =
