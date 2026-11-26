@@ -21,6 +21,7 @@ final class LxSources {
   private static final String ROWS = "lxSources";
   private final SharedPreferences prefs;
   final SourceHealthTracker health = new SourceHealthTracker();
+  final ResolvedUrlCache urlCache = new ResolvedUrlCache();
   private final LxEnginePool<LxEngine> pool = new LxEnginePool<>(health);
 
   LxSources(SharedPreferences prefs) throws JSONException {
@@ -133,6 +134,7 @@ final class LxSources {
   private void invalidate(String id) {
     pool.invalidate(id);
     health.invalidateSource(id);
+    urlCache.invalidateSource(id);
   }
 
   String install(Context context, JSONObject expected, String script, String fallback, String link)
@@ -386,6 +388,33 @@ final class LxSources {
     } catch (Exception error) {
       return candidate.name + " · 初始化失败 · " +
           (error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage());
+    }
+  }
+
+  void prewarm(Context context, int limit) {
+    List<Candidate> enabled = new ArrayList<>();
+    synchronized (this) {
+      try {
+        JSONArray list = rows();
+        for (int i = 0; i < list.length() && enabled.size() < limit; i++) {
+          JSONObject row = list.getJSONObject(i);
+          if (row.optBoolean("enabled")) enabled.add(new Candidate(row));
+        }
+      } catch (JSONException ignored) {
+        return;
+      }
+    }
+    for (Candidate candidate : enabled) {
+      if (Thread.currentThread().isInterrupted()) return;
+      if (candidate.isWarm()) continue;
+      try (LxEnginePool<LxEngine>.Lease lease = candidate.acquire(context)) {
+        LxEngine engine = lease.await();
+        candidate.cacheCapabilities(engine.capabilities());
+      } catch (InterruptedException error) {
+        Thread.currentThread().interrupt();
+        return;
+      } catch (Exception ignored) {
+      }
     }
   }
 

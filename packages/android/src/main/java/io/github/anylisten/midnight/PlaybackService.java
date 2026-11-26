@@ -11,6 +11,7 @@ import android.os.SystemClock;
 import android.util.Log;
 import androidx.media3.common.*;
 import androidx.media3.datasource.*;
+import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy;
@@ -18,14 +19,18 @@ import androidx.media3.session.*;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import okhttp3.OkHttpClient;
+import okhttp3.Protocol;
 import org.json.*;
 
 @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
@@ -40,7 +45,16 @@ public final class PlaybackService extends MediaSessionService {
   private final ThreadPoolExecutor artworkWorker =
       new ThreadPoolExecutor(2, 2, 30, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1),
           new ThreadPoolExecutor.DiscardOldestPolicy());
+  private final ExecutorService preloadWorker =
+      Executors.newSingleThreadExecutor(task -> {
+        Thread thread = new Thread(task, "LX preload");
+        thread.setDaemon(true);
+        return thread;
+      });
+  private OkHttpClient onlineHttp;
   private Future<?> artworkRequest;
+  private Future<?> preloadRequest;
+  private volatile SourceRace<LxSources.Candidate, String[]> preloadRace;
   private Runnable pendingNotification;
   private long lastNotificationAt;
   private boolean lastForegroundRequired;
@@ -49,6 +63,7 @@ public final class PlaybackService extends MediaSessionService {
   private MediaItem decoratedItem;
   private boolean updatingArtwork;
   private final Runnable refreshArtwork = this::loadCurrentArtwork;
+  private final Runnable triggerPreloadNext = this::preloadNextTrack;
   private final Runnable checkpoint =
       new Runnable() {
         @Override
@@ -84,11 +99,17 @@ public final class PlaybackService extends MediaSessionService {
     DataSource.Factory upstream = new DefaultDataSource.Factory(this,
         new DefaultHttpDataSource.Factory().setConnectTimeoutMs(6000).setReadTimeoutMs(8000)
             .setAllowCrossProtocolRedirects(true));
-    OkHttpClient onlineHttp = new OkHttpClient.Builder()
-        .connectTimeout(6, TimeUnit.SECONDS)
+    onlineHttp = new OkHttpClient.Builder()
+        .dns(PreferIpv4Dns.INSTANCE)
+        .protocols(Collections.singletonList(Protocol.HTTP_1_1))
+        .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
         .build();
     DataSource.Factory data = () -> new LxDataSource(this, store, upstream, onlineHttp);
+    DefaultLoadControl loadControl =
+        new DefaultLoadControl.Builder()
+            .setBufferDurationsMs(15_000, 50_000, 500, 1_500)
+            .build();
     DefaultLoadErrorHandlingPolicy loadErrorPolicy =
         new DefaultLoadErrorHandlingPolicy() {
           @Override
@@ -101,11 +122,13 @@ public final class PlaybackService extends MediaSessionService {
         };
     ExoPlayer player =
         new ExoPlayer.Builder(this)
+            .setLoadControl(loadControl)
             .setMediaSourceFactory(
                 new DefaultMediaSourceFactory(this)
                     .setDataSourceFactory(data)
                     .setLoadErrorHandlingPolicy(loadErrorPolicy))
             .build();
+    preloadWorker.execute(() -> store.sources.prewarm(this, 2));
     player.setAudioAttributes(
         new AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
@@ -157,6 +180,8 @@ public final class PlaybackService extends MediaSessionService {
           public void onMediaItemTransition(MediaItem item, int reason) {
             main.removeCallbacks(refreshArtwork);
             main.post(refreshArtwork);
+            cancelPreload();
+            if (player.isPlaying()) main.postDelayed(triggerPreloadNext, 800);
           }
 
           @Override
@@ -169,7 +194,11 @@ public final class PlaybackService extends MediaSessionService {
                 Player.EVENT_IS_PLAYING_CHANGED)) saveProgress(player);
             if (events.contains(Player.EVENT_IS_PLAYING_CHANGED)) {
               main.removeCallbacks(checkpoint);
-              if (player.isPlaying()) main.postDelayed(checkpoint, CHECKPOINT_INTERVAL);
+              if (player.isPlaying()) {
+                main.postDelayed(checkpoint, CHECKPOINT_INTERVAL);
+                main.removeCallbacks(triggerPreloadNext);
+                main.postDelayed(triggerPreloadNext, 800);
+              }
             }
           }
         });
@@ -360,11 +389,55 @@ public final class PlaybackService extends MediaSessionService {
     return session;
   }
 
+  private void cancelPreload() {
+    main.removeCallbacks(triggerPreloadNext);
+    SourceRace<LxSources.Candidate, String[]> race = preloadRace;
+    preloadRace = null;
+    if (race != null) race.cancel();
+    if (preloadRequest != null) {
+      preloadRequest.cancel(true);
+      preloadRequest = null;
+    }
+  }
+
+  private void preloadNextTrack() {
+    if (session == null || onlineHttp == null) return;
+    Player player = session.getPlayer();
+    if (!player.isPlaying()) return;
+    int nextIndex = player.getNextMediaItemIndex();
+    if (nextIndex == C.INDEX_UNSET || nextIndex < 0 || nextIndex >= player.getMediaItemCount()) return;
+    MediaItem nextItem = player.getMediaItemAt(nextIndex);
+    if (nextItem == null) return;
+    MusicStore store = MusicStore.get(this);
+    JSONObject track = store.queuedTrack(nextItem.mediaId);
+    if (track == null || "local".equals(track.optString("source"))) return;
+    cancelPreload();
+    preloadRequest = preloadWorker.submit(() -> {
+      SourceRace<LxSources.Candidate, String[]> race = null;
+      try {
+        race = LxDataSource.startPreload(this, store, onlineHttp, track);
+        if (race == null) return;
+        preloadRace = race;
+        String[] result = race.await();
+        if (result != null && result.length == 3) {
+          store.sources.urlCache.put(result[2], result[0], result[1]);
+        }
+      } catch (InterruptedException ignored) {
+        Thread.currentThread().interrupt();
+      } catch (Exception ignored) {
+      } finally {
+        if (preloadRace == race) preloadRace = null;
+      }
+    });
+  }
+
   @Override
   public void onDestroy() {
     ++artworkGeneration;
     if (pendingNotification != null) main.removeCallbacks(pendingNotification);
     main.removeCallbacks(refreshArtwork);
+    cancelPreload();
+    preloadWorker.shutdownNow();
     if (artworkRequest != null) artworkRequest.cancel(true);
     artworkWorker.shutdownNow();
     if (session != null) {

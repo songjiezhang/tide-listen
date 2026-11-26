@@ -22,8 +22,17 @@ import org.json.*;
 /** One LX mobile protocol session, with its own JS thread and cancellable HTTP calls. */
 final class LxEngine implements LxEnginePool.Engine {
   static final OkHttpClient HTTP =
-      new OkHttpClient.Builder().callTimeout(25, TimeUnit.SECONDS).build();
-  private static final OkHttpClient SCRIPT_HTTP = HTTP.newBuilder().build();
+      new OkHttpClient.Builder()
+          .dns(PreferIpv4Dns.INSTANCE)
+          .connectTimeout(6, TimeUnit.SECONDS)
+          .readTimeout(10, TimeUnit.SECONDS)
+          .callTimeout(25, TimeUnit.SECONDS)
+          .build();
+  private static final OkHttpClient SCRIPT_HTTP =
+      HTTP.newBuilder()
+          .connectTimeout(5, TimeUnit.SECONDS)
+          .readTimeout(8, TimeUnit.SECONDS)
+          .build();
   private static volatile boolean quickJsReady;
   static final int SCRIPT_LIMIT = 2 * 1024 * 1024;
   private static final long INIT_TIMEOUT_MS = 12_000;
@@ -363,11 +372,14 @@ final class LxEngine implements LxEnginePool.Engine {
           form = o.optJSONObject("form"),
           multipart = o.optJSONObject("formData");
       Request.Builder req =
-          new Request.Builder().url(msg.getString("url")).header("Accept", "application/json");
+          new Request.Builder()
+              .url(msg.getString("url"))
+              .header("User-Agent", LxDataSource.STREAM_USER_AGENT)
+              .header("Accept", "application/json");
       if (h != null)
         for (Iterator<String> it = h.keys(); it.hasNext(); ) {
           String k = it.next();
-          req.header(k, h.getString(k));
+          if (!h.isNull(k)) req.header(k, String.valueOf(h.get(k)));
         }
       String method = o.optString("method", "GET").toUpperCase(Locale.ROOT);
       RequestBody body = null;

@@ -269,4 +269,27 @@ public class SourceRaceTest {
     pool.invalidate("one");
     assertFalse(pool.isReady("one", 1));
   }
+
+  @Test
+  public void preferIpv4OrdersIpv4AheadOfIpv6WithoutDroppingIpv6() throws Exception {
+    java.net.InetAddress v6 = java.net.InetAddress.getByName("2001:db8::1");
+    java.net.InetAddress v4 = java.net.InetAddress.getByName("198.51.100.1");
+    List<java.net.InetAddress> ordered = PreferIpv4Dns.order(Arrays.asList(v6, v4));
+    assertEquals(Arrays.asList(v4, v6), ordered);
+    assertEquals(Collections.singletonList(v6), PreferIpv4Dns.order(Collections.singletonList(v6)));
+  }
+
+  @Test
+  public void resolvedUrlCacheHonorsTtlAndSourceInvalidation() {
+    AtomicLong clock = new AtomicLong(1000);
+    ResolvedUrlCache cache = new ResolvedUrlCache(clock::get, 5000);
+    cache.put("song1::320k", "srcA", "https://example.com/a.mp3");
+    cache.put("song2::320k", "srcB", "https://example.com/b.mp3");
+    assertEquals("https://example.com/a.mp3", cache.get("song1::320k").url);
+    cache.invalidateSource("srcA");
+    assertNull(cache.get("song1::320k"));
+    assertEquals("https://example.com/b.mp3", cache.get("song2::320k").url);
+    clock.addAndGet(5000);
+    assertNull(cache.get("song2::320k"));
+  }
 }
