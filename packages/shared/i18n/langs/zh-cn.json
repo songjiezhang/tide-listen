@@ -696,7 +696,7 @@
   "settings.tray.theme_id_light": "白色",
   "settings.tray.theme_id_origin": "原色",
   "settings.update": "软件更新",
-  "settings.update.allow_pre_release": "启用预发布版本",
+  "settings.update.allow_pre_release": "测试版",
   "settings.update.allow_pre_release_desc": "预发布版本是指在正式发布之前的版本，可能包含一些新功能或修复，但也可能不稳定",
   "settings.update.checking": "检查更新中...",
   "settings.update.commit_date": "提交日期：",

@@ -165,13 +165,14 @@ public final class PlayerActivity extends Activity {
 
                   @Override
                   public void onPlayerError(PlaybackException e) {
-                    Throwable cause = e;
-                    while (cause.getCause() != null) cause = cause.getCause();
-                    notice(
-                        "播放失败 · "
-                            + (cause.getMessage() == null
-                                ? e.getErrorCodeName()
-                                : cause.getMessage()));
+                    // The service may immediately prepare a replacement at the current play time.
+                    main.postDelayed(() -> {
+                      if (isDestroyed() || player == null || player.getPlayerError() != e) return;
+                      Throwable cause = e;
+                      while (cause.getCause() != null) cause = cause.getCause();
+                      notice("播放失败 · " + (cause.getMessage() == null
+                          ? e.getErrorCodeName() : cause.getMessage()));
+                    }, 300);
                   }
                 });
             resumeOnOpen();
@@ -275,6 +276,8 @@ public final class PlayerActivity extends Activity {
               store.prefs.getString("quality", "auto"),
               "playMode",
               store.prefs.getString("playMode", "order"),
+              "includeBetaUpdates",
+              store.prefs.getBoolean("includeBetaUpdates", false),
               "unmetered",
               store.prefs.getBoolean("unmetered", false),
               "keepScreen",
@@ -457,7 +460,7 @@ public final class PlayerActivity extends Activity {
   private void dispatch(String action, String arg) throws Exception {
     switch (action) {
       case "checkAppUpdate":
-        appUpdater.check();
+        appUpdater.check(store.prefs.getBoolean("includeBetaUpdates", false));
         break;
       case "projectSource":
         startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(AppUpdater.REPOSITORY)));
@@ -559,6 +562,11 @@ public final class PlayerActivity extends Activity {
         refresh();
         break;
       case "showListeningList":
+        store.prefs.edit().putBoolean(action, "true".equals(arg)).apply();
+        refresh();
+        break;
+      case "includeBetaUpdates":
+        appUpdater.cancelCheck();
         store.prefs.edit().putBoolean(action, "true".equals(arg)).apply();
         refresh();
         break;
@@ -1174,7 +1182,7 @@ public final class PlayerActivity extends Activity {
           Uri uri = Uri.parse(track.getString("uri"));
           if ("content".equals(uri.getScheme())) url = CatalogEngine.embeddedCover(this, uri);
         } else {
-          url = CatalogEngine.art(CatalogEngine.pictureUrl(this, store.sharedRow(track)));
+          url = CatalogEngine.trackArt(this, id, store.sharedRow(track));
         }
       } catch (Exception ignored) {
         // A track can have no artwork, or its provider can be offline.

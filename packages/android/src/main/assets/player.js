@@ -402,6 +402,7 @@ function settings() {
     '</span></div><p class="sourceStatus" role="status">' + esc(data.sourceUpdateStatus) + '</p>' +
     sourceCards() + '</section><section><h2>关于</h2><div class="setting"><div><strong>' + esc(data.appName || '汐听') + ' · TideListen</strong><small>当前版本 ' +
     esc(data.appVersion || '') + ' · Midnight 主题</small></div>' + button('checkAppUpdate', '检查更新') + '</div>' +
+    toggleOption('includeBetaUpdates', '测试版', '更新渠道 · 勾选后也会检查 Beta 版本') +
     '<div class="setting"><div><strong>项目源码与许可</strong><small>基于 Any Listen 的非商业改版</small></div>' +
     button('projectSource', '查看') + '</div></section></div>'
 }

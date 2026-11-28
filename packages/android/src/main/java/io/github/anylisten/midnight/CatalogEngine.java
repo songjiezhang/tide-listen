@@ -56,6 +56,10 @@ final class CatalogEngine {
           .build();
   private static OkHttpClient artworkHttp;
   private static CatalogCache cachedPages, cachedCovers;
+  private static volatile String cachedHostScript, cachedMetadataScript;
+  private static final LruCache<String, String> PICTURE_URL_CACHE = new LruCache<>(256);
+  private static final ConcurrentHashMap<String, FutureTask<String>> PICTURE_REQUESTS =
+      new ConcurrentHashMap<>();
   private static final ConcurrentHashMap<String, FutureTask<Cover>> COVER_REQUESTS =
       new ConcurrentHashMap<>();
   private static final ThreadPoolExecutor COVER_PREFETCH =
@@ -165,6 +169,12 @@ final class CatalogEngine {
         .toString();
   }
 
+  static String trackArt(Context context, String trackId, JSONObject song) throws Exception {
+    String proxy = art(pictureUrl(context, song));
+    if (proxy.isEmpty()) return "";
+    return HttpUrl.get(proxy).newBuilder().addQueryParameter("track", trackId).build().toString();
+  }
+
   static WebResourceResponse cover(Context context, String link) {
     HttpUrl request = HttpUrl.parse(link);
     if (request == null || !ART_HOST.equals(request.host())) return null;
@@ -172,7 +182,17 @@ final class CatalogEngine {
     try {
       HttpUrl url = target == null ? null : publicUrl(target, true);
       if (url == null) throw new IOException();
-      Cover cover = loadCover(context, url);
+      Cover cover;
+      try {
+        cover = loadCover(context, url);
+      } catch (Exception error) {
+        String id = request.queryParameter("track");
+        if (id == null || !expiredCover(error)) throw error;
+        MusicStore store = MusicStore.get(context);
+        JSONObject song = store.sharedRow(store.track(id));
+        cover = refreshCover(context, song, url);
+      }
+      if (cover == null) throw new IOException("封面地址为空");
       return new WebResourceResponse(
           cover.type,
           null,
@@ -215,6 +235,7 @@ final class CatalogEngine {
                       null,
                       true)) {
                 ResponseBody body = res.body();
+                if (res.code() == 403 || res.code() == 404) throw new ExpiredCover(res.code());
                 if (!res.isSuccessful()
                     || body == null
                     || body.contentLength() > COVER_SOURCE_LIMIT) throw new IOException();
@@ -261,11 +282,91 @@ final class CatalogEngine {
         Base64.encodeToString(image.bytes, Base64.NO_WRAP);
   }
 
+  private static String catalogHostScript(Context context) throws IOException {
+    String script = cachedHostScript;
+    if (script != null) return script;
+    synchronized (CatalogEngine.class) {
+      if (cachedHostScript == null) {
+        cachedHostScript =
+            MusicStore.text(context.getAssets().open("catalog-host.js"), MusicStore.LIMIT);
+      }
+      return cachedHostScript;
+    }
+  }
+
+  private static String onlineMetadataScript(Context context) throws IOException {
+    String script = cachedMetadataScript;
+    if (script != null) return script;
+    synchronized (CatalogEngine.class) {
+      if (cachedMetadataScript == null) {
+        cachedMetadataScript =
+            MusicStore.text(context.getAssets().open("online-metadata.js"), MusicStore.LIMIT);
+      }
+      return cachedMetadataScript;
+    }
+  }
+
+  private static final class ExpiredCover extends IOException {
+    ExpiredCover(int code) { super("HTTP " + code); }
+  }
+
+  private static boolean expiredCover(Throwable error) {
+    for (; error != null; error = error.getCause()) if (error instanceof ExpiredCover) return true;
+    return false;
+  }
+
+  private static String pictureKey(JSONObject song) throws JSONException {
+    JSONObject meta = song.getJSONObject("meta");
+    return meta.optString("source") + ":" + meta.optString("musicId", song.optString("id"));
+  }
+
+  private static void forgetCover(String key, HttpUrl expired) {
+    synchronized (PICTURE_URL_CACHE) {
+      String cached = PICTURE_URL_CACHE.get(key);
+      if (cached != null && expired.equals(publicUrl(cached, true))) PICTURE_URL_CACHE.remove(key);
+    }
+  }
+
+  private static Cover refreshCover(Context context, JSONObject song, HttpUrl expired) throws Exception {
+    String key = pictureKey(song);
+    forgetCover(key, expired);
+    HttpUrl fresh = publicUrl(pictureUrl(context, song), true);
+    if (fresh == null) return null;
+    try {
+      return loadCover(context, fresh);
+    } catch (Exception error) {
+      if (expiredCover(error)) forgetCover(key, fresh);
+      throw error;
+    }
+  }
+
   static String pictureUrl(Context context, JSONObject song) throws Exception {
     String platform = song.getJSONObject("meta").optString("source");
     if (!MusicStore.PLATFORMS.contains(platform)) return "";
-    return run(context, obj("action", "picture", "platform", platform, "musicInfo", song))
-        .optString("url");
+    String key = pictureKey(song);
+    FutureTask<String> task;
+    synchronized (PICTURE_URL_CACHE) {
+      String cached = PICTURE_URL_CACHE.get(key);
+      if (cached != null) return cached;
+      task = PICTURE_REQUESTS.get(key);
+      if (task == null) {
+        task = new FutureTask<>(() -> {
+          String url = "";
+          try {
+            url = run(context, obj("action", "picture", "platform", platform, "musicInfo", song)).optString("url");
+            return url;
+          } finally {
+            synchronized (PICTURE_URL_CACHE) {
+              if (!url.isEmpty()) PICTURE_URL_CACHE.put(key, url);
+              PICTURE_REQUESTS.remove(key);
+            }
+          }
+        });
+        PICTURE_REQUESTS.put(key, task);
+      }
+    }
+    task.run();
+    return task.get();
   }
 
   /** Encoded artwork for the system media session, small enough to travel with one item. */
@@ -282,12 +383,22 @@ final class CatalogEngine {
           cover = loadCover(context, saved);
         } catch (Exception error) {
           if (Thread.currentThread().isInterrupted()) throw error;
-          // A saved image URL can expire. Ask Online Metadata for a fresh one.
+          if (expiredCover(error)) {
+            Cover fresh = refreshCover(context, song, saved);
+            return fresh == null ? null : decodeCover(fresh.bytes, 320, 96 * 1024, true).bytes;
+          }
         }
       }
       if (cover == null) {
         HttpUrl resolved = publicUrl(pictureUrl(context, song), true);
-        if (resolved != null && !resolved.equals(saved)) cover = loadCover(context, resolved);
+        if (resolved != null && !resolved.equals(saved)) {
+          try {
+            cover = loadCover(context, resolved);
+          } catch (Exception error) {
+            if (!expiredCover(error)) throw error;
+            cover = refreshCover(context, song, resolved);
+          }
+        }
       }
     }
     return cover == null ? null : decodeCover(cover.bytes, 320, 96 * 1024, true).bytes;
@@ -384,9 +495,8 @@ final class CatalogEngine {
                 output[0] = (String) args[0];
                 return null;
               });
-      vm.evaluate(MusicStore.text(context.getAssets().open("catalog-host.js"), MusicStore.LIMIT));
-      vm.evaluate(
-          MusicStore.text(context.getAssets().open("online-metadata.js"), MusicStore.LIMIT));
+      vm.evaluate(catalogHostScript(context));
+      vm.evaluate(onlineMetadataScript(context));
       vm.evaluate(
           "OnlineMetadata.catalog(JSON.parse("
               + JSONObject.quote(arg.toString())

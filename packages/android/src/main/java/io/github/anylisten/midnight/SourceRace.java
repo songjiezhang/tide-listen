@@ -25,6 +25,10 @@ final class SourceRace<T, R> {
     TIMERS.setRemoveOnCancelPolicy(true);
   }
 
+  static ScheduledFuture<?> after(long delayMs, Runnable action) {
+    return TIMERS.schedule(action, delayMs, TimeUnit.MILLISECONDS);
+  }
+
   interface Cancellation {
     void cancel(boolean timedOut);
   }

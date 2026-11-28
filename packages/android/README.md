@@ -27,7 +27,7 @@ Windows 可使用 `gradlew.bat`。APK 分别生成在 `build/outputs/apk/phone/d
 
 ## 应用内更新
 
-从 0.12.0 或更早版本升级，请手动覆盖安装一次。0.12.1 起手机使用 Android、车机使用 Android-Car 作为版本标识，在「设置 → 关于」可检查对应版本的更新。手机和车机使用各自的 APK，系统会验证同包名应用的签名。发布时分别构建 `assemblePhoneRelease`、`assembleDashboardRelease`，使用上一版对应的签名密钥为 Release APK 签名，并上传到同一 GitHub Release。安装包按主 README 的命名规则发布。
+从 0.12.0 或更早版本升级，请手动覆盖安装一次。0.12.1 起手机使用 Android、车机使用 Android-Car 作为版本标识，在「设置 → 关于」可检查对应版本的更新。「测试版」默认不勾选，只接收正式版。勾选后也会检查 Beta 版本，取消勾选后不会降级已安装的版本。手机和车机使用各自的 APK，系统会验证同包名应用的签名。发布时分别构建 `assemblePhoneRelease`、`assembleDashboardRelease`，使用上一版对应的签名密钥为 Release APK 签名，并上传到同一 GitHub Release。安装包按主 README 的命名规则发布。
 
 应用内更新在系统安装成功、取消或拒绝安装权限后自动清理私有缓存中的 APK。升级后也会清理旧版本遗留的更新包。浏览器下载目录中的手动安装包由用户管理。
 

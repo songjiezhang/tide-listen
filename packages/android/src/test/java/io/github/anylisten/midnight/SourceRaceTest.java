@@ -283,9 +283,14 @@ public class SourceRaceTest {
   public void resolvedUrlCacheHonorsTtlAndSourceInvalidation() {
     AtomicLong clock = new AtomicLong(1000);
     ResolvedUrlCache cache = new ResolvedUrlCache(clock::get, 5000);
-    cache.put("song1::320k", "srcA", "https://example.com/a.mp3");
-    cache.put("song2::320k", "srcB", "https://example.com/b.mp3");
-    assertEquals("https://example.com/a.mp3", cache.get("song1::320k").url);
+    cache.put("song1::320k", "srcA", 2, "tx", "mid1", "320k", "https://example.com/a.mp3");
+    cache.put("song2::320k", "srcB", 1, "kw", "mid2", "128k", "https://example.com/b.mp3");
+    ResolvedUrlCache.Entry hit = cache.get("song1::320k");
+    assertEquals("https://example.com/a.mp3", hit.url);
+    assertEquals(hit.mediaCacheKey(), hit.validated(hit.url, "etag").mediaCacheKey());
+    assertEquals("tx:mid1", ResolvedUrlCache.stableSongKey("tx", "mid1", "shared:tx_mid1"));
+    cache.rememberQuality("tx:mid1", "320k");
+    assertEquals("320k", cache.rememberedQuality("tx:mid1"));
     cache.invalidateSource("srcA");
     assertNull(cache.get("song1::320k"));
     assertEquals("https://example.com/b.mp3", cache.get("song2::320k").url);
@@ -309,11 +314,68 @@ public class SourceRaceTest {
     java.util.Set<String> declared = new java.util.HashSet<>(Arrays.asList("128k", "320k"));
     assertEquals(
         Arrays.asList("320k", "128k"), LxSources.resolveQualitiesForDeclared("flac", declared));
+    // auto defaults to 128k first (matching lx-music-mobile), honoring remembered working quality first.
     assertEquals(
-        Arrays.asList("320k", "128k"), LxSources.resolveQualitiesForDeclared("auto", declared));
+        Arrays.asList("128k", "320k"), LxSources.resolveQualitiesForDeclared("auto", declared));
     assertEquals(
-        Arrays.asList("320k", "128k", "flac", "flac24bit"),
+        Arrays.asList("320k", "128k"),
+        LxSources.resolveQualitiesForDeclared("auto", declared, "320k"));
+    assertEquals(
+        Arrays.asList("128k", "320k", "flac", "flac24bit"),
         LxSources.resolveQualitiesForDeclared("auto", Collections.emptySet()));
+  }
+
+  @Test
+  public void mediaCacheKeysSeparateSourcePlatformSongAndQuality() {
+    String a = MediaCache.cacheKey("src1", 1, "tx", "001", "128k", "/a", "g");
+    String b = MediaCache.cacheKey("src1", 1, "tx", "001", "320k", "/a", "g");
+    String c = MediaCache.cacheKey("src1", 1, "kw", "001", "128k", "/a", "g");
+    String d = MediaCache.cacheKey("src2", 1, "tx", "001", "128k", "/a", "g");
+    assertNotEquals(a, b);
+    assertNotEquals(a, c);
+    assertNotEquals(a, d);
+    assertNotEquals(a, MediaCache.cacheKey("src1", 2, "tx", "001", "128k", "/a", "g"));
+    assertNotEquals(a, MediaCache.cacheKey("src1", 1, "tx", "001", "128k", "/b", "g"));
+    assertNotEquals(a, MediaCache.cacheKey("src1", 1, "tx", "001", "128k", "/a", "new"));
+    assertEquals(Collections.singletonList("128k"), LxSources.resolveQualitiesForDeclared(
+        "auto", Collections.singleton("128k"), "flac"));
+  }
+
+  @Test(timeout = 3000)
+  public void fallbackDrainsTimelyMatchesAndDisposesLateResultsExactlyOnce() throws Exception {
+    List<String> closed = new CopyOnWriteArrayList<>();
+    FallbackRace<Integer, String> race = new FallbackRace<>(1, 2, 100, 2000, 0, closed::add);
+    for (int i = 1; i <= 3; i++) assertTrue(race.offer(i));
+    assertEquals(1, (int) race.next());
+    assertEquals(2, (int) race.next());
+    Thread.sleep(150);
+    assertFalse(race.offer(4));
+    race.finished(null);
+    assertEquals(3, (int) race.next());
+    race.searchFinished();
+    FutureTask<Integer> waiter = new FutureTask<>(race::next);
+    new Thread(waiter).start();
+    race.finished("only winner");
+    assertNull(waiter.get(1, TimeUnit.SECONDS));
+    assertEquals("only winner", race.takeWinner());
+    race.close();
+    race.finished("late");
+    assertEquals(Collections.singletonList("late"), closed);
+  }
+
+  @Test(timeout = 2000)
+  public void canceledFallbackClosesPublishedAndInFlightWinners() throws Exception {
+    List<String> closed = new CopyOnWriteArrayList<>();
+    FallbackRace<Integer, String> race = new FallbackRace<>(0, 2, 1000, 1000, 0, closed::add);
+    race.offer(1);
+    race.offer(2);
+    race.next();
+    race.next();
+    race.finished("published");
+    race.close();
+    race.finished("in flight");
+    assertNull(race.takeWinner());
+    assertEquals(Arrays.asList("published", "in flight"), closed);
   }
 
   @Test(timeout = 2000)

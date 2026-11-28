@@ -21,6 +21,8 @@ import org.json.*;
 
 /** One LX mobile protocol session, with its own JS thread and cancellable HTTP calls. */
 final class LxEngine implements LxEnginePool.Engine {
+  static final String SCRIPT_USER_AGENT =
+      "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36";
   static final OkHttpClient HTTP =
       new OkHttpClient.Builder()
           .dns(PreferIpv4Dns.INSTANCE)
@@ -414,7 +416,7 @@ final class LxEngine implements LxEnginePool.Engine {
       Request.Builder req =
           new Request.Builder()
               .url(msg.getString("url"))
-              .header("User-Agent", LxDataSource.STREAM_USER_AGENT)
+              .header("User-Agent", SCRIPT_USER_AGENT)
               .header("Accept", "*/*");
       if (h != null)
         for (Iterator<String> it = h.keys(); it.hasNext(); ) {

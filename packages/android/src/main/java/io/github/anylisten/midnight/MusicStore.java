@@ -39,7 +39,8 @@ final class MusicStore {
     device = prefs.getString("device", UUID.randomUUID().toString());
     prefs.edit().putString("device", device).apply();
     try {
-      sources = new LxSources(prefs);
+      sources =
+          new LxSources(prefs, c.getSharedPreferences("resolved-url-cache", Context.MODE_PRIVATE));
       tracks = new JSONObject(prefs.getString("tracks", "{}"));
       for (JSONObject track : legacyTracks())
         if ("local".equals(track.optString("source"))) local.put(localId(track), track);
@@ -178,7 +179,16 @@ final class MusicStore {
 
   JSONObject sharedRow(JSONObject track) throws JSONException {
     JSONObject existing = track.optJSONObject("desktopRow");
-    if (existing != null) return existing;
+    if (existing != null) {
+      JSONObject music = track.optJSONObject("music");
+      JSONObject meta = existing.optJSONObject("meta");
+      if (music == null || meta == null) return existing;
+      JSONObject qualities = mergedQualities(meta, music);
+      if (qualities.length() == 0) return existing;
+      JSONObject copy = new JSONObject(existing.toString());
+      copy.getJSONObject("meta").put("qualitys", qualities);
+      return copy;
+    }
     String platform = track.getString("source");
     boolean onDevice = "local".equals(platform);
     String id;
@@ -214,8 +224,8 @@ final class MusicStore {
               "qualitys",
               "_qualitys")) if (!info.isNull(field)) meta.put(field, info.get(field));
       if (!meta.has("picUrl") && !info.isNull("img")) meta.put("picUrl", info.get("img"));
-      if (!meta.has("qualitys") && info.optJSONObject("types") != null)
-        meta.put("qualitys", info.get("types"));
+      JSONObject qualities = mergedQualities(info.optJSONObject("meta"), info);
+      if (qualities.length() > 0) meta.put("qualitys", qualities);
     }
     String duration = track.optString("duration");
     return obj(
@@ -233,10 +243,52 @@ final class MusicStore {
         meta);
   }
 
+  private static JSONObject mergedQualities(JSONObject... records) throws JSONException {
+    JSONObject merged = new JSONObject();
+    for (JSONObject record : records) {
+      if (record == null) continue;
+      for (String field : Arrays.asList("types", "qualitys", "_qualitys", "_types")) {
+        Object value = record.opt(field);
+        if (value instanceof JSONObject) {
+          JSONObject map = (JSONObject) value;
+          for (Iterator<String> it = map.keys(); it.hasNext(); ) {
+            String type = it.next();
+            if (!map.isNull(type)) mergeQuality(merged, type, map.optJSONObject(type));
+          }
+        } else if (value instanceof JSONArray) {
+          JSONArray list = (JSONArray) value;
+          for (int i = 0; i < list.length(); i++) {
+            JSONObject details = list.optJSONObject(i);
+            if (!list.isNull(i)) mergeQuality(merged,
+                details == null ? list.optString(i) : details.optString("type"), details);
+          }
+        }
+      }
+    }
+    return merged;
+  }
+
+  private static void mergeQuality(JSONObject merged, String type, JSONObject details) throws JSONException {
+    if (type.isEmpty()) return;
+    JSONObject entry = merged.optJSONObject(type);
+    if (entry == null) {
+      entry = new JSONObject();
+      merged.put(type, entry);
+    }
+    if (details == null) return;
+    for (Iterator<String> it = details.keys(); it.hasNext(); ) {
+      String key = it.next();
+      if (!details.isNull(key) && !"".equals(details.opt(key))) entry.put(key, details.get(key));
+    }
+    if (!entry.has("size") && entry.has("sizeStr")) entry.put("size", entry.get("sizeStr"));
+    if (!entry.has("sizeStr") && entry.opt("size") instanceof String) entry.put("sizeStr", entry.get("size"));
+  }
+
   static JSONObject fromLx(JSONObject raw) throws JSONException {
     String p = raw.getString("source");
     if (!PLATFORMS.contains(p)) throw new JSONException("不支持的歌曲平台");
-    JSONObject meta = raw.optJSONObject("meta");
+    JSONObject info = new JSONObject(raw.toString());
+    JSONObject meta = info.optJSONObject("meta");
     if (meta == null) meta = new JSONObject(raw.toString());
     String sid =
         raw.has("songmid")
@@ -244,7 +296,6 @@ final class MusicStore {
             : meta.optString("songId", raw.optString("id"));
     if (sid.isEmpty()) sid = meta.optString("hash");
     if (sid.isEmpty()) throw new JSONException("歌曲缺少 ID");
-    JSONObject info = new JSONObject(raw.toString());
     for (Iterator<String> it = meta.keys(); it.hasNext(); ) {
       String k = it.next();
       if (!info.has(k)) info.put(k, meta.get(k));
@@ -252,10 +303,13 @@ final class MusicStore {
     if (!meta.has("songId")) meta.put("songId", sid);
     if (!info.has("songmid")) info.put("songmid", meta.get("songId"));
     if (!info.has("img")) info.put("img", meta.optString("picUrl"));
-    if (!info.has("types"))
-      info.put("types", meta.has("qualitys") ? meta.get("qualitys") : new JSONArray());
-    if (!info.has("_types"))
-      info.put("_types", meta.has("_qualitys") ? meta.get("_qualitys") : new JSONObject());
+    JSONObject qualities = mergedQualities(meta, raw);
+    JSONArray types = new JSONArray();
+    for (Iterator<String> it = qualities.keys(); it.hasNext(); ) {
+      String type = it.next();
+      types.put(new JSONObject(qualities.getJSONObject(type).toString()).put("type", type));
+    }
+    info.put("_types", qualities).put("types", types);
     if (!info.has("typeUrl")) info.put("typeUrl", new JSONObject());
     if (p.equals("tx") && raw.has("meta") && meta.has("id")) info.put("songId", meta.get("id"));
     info.put("meta", meta);

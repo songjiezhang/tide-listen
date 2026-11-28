@@ -498,15 +498,6 @@ final class DesktopPlaylists {
       JSONObject t = MusicStore.fromLx(raw);
       JSONObject info = t.getJSONObject("music");
       if ("tx".equals(platform) && meta.has("songId")) info.put("songId", meta.get("songId"));
-      JSONObject qualities = meta.optJSONObject("qualitys");
-      if (qualities != null) {
-        JSONObject types = new JSONObject(qualities.toString());
-        for (Iterator<String> it = types.keys(); it.hasNext(); ) {
-          JSONObject q = types.optJSONObject(it.next());
-          if (q != null && q.has("sizeStr")) q.put("size", q.get("sizeStr"));
-        }
-        info.put("types", types);
-      }
       return t.put("id", id)
           .put("desktopRow", row)
           .put("platform", MusicStore.platformName(platform))

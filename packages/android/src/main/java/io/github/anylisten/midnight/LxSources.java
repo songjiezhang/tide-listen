@@ -21,11 +21,16 @@ final class LxSources {
   private static final String ROWS = "lxSources";
   private final SharedPreferences prefs;
   final SourceHealthTracker health = new SourceHealthTracker();
-  final ResolvedUrlCache urlCache = new ResolvedUrlCache();
+  final ResolvedUrlCache urlCache;
   private final LxEnginePool<LxEngine> pool = new LxEnginePool<>(health);
 
   LxSources(SharedPreferences prefs) throws JSONException {
+    this(prefs, null);
+  }
+
+  LxSources(SharedPreferences prefs, SharedPreferences urlCachePrefs) throws JSONException {
     this.prefs = prefs;
+    this.urlCache = new ResolvedUrlCache(urlCachePrefs);
     String script = prefs.getString("script", "");
     if (prefs.contains(ROWS) || script.isEmpty()) return;
     String id = UUID.randomUUID().toString();
@@ -296,8 +301,9 @@ final class LxSources {
   // Use the same quality ladder as the desktop LX source loader.
   private static final List<String> QUALITY_ORDER =
       Arrays.asList("128k", "192k", "320k", "wav", "flac", "flac24bit", "dolby", "master");
+  // Match lx-music-mobile default (128k first for fast startup & low bandwidth) with upward fallback.
   private static final List<String> AUTO_QUALITY_ORDER =
-      Arrays.asList("320k", "128k", "flac", "flac24bit");
+      Arrays.asList("128k", "320k", "flac", "flac24bit");
 
   static List<String> playbackQualities(String preferred) {
     int index = QUALITY_ORDER.indexOf(preferred);
@@ -309,26 +315,47 @@ final class LxSources {
 
   /**
    * Builds the concrete quality order for playback, prioritizing qualities declared by the song's
-   * metadata (matching lx-music-mobile's getPlayQuality) while keeping lower fallbacks available.
+   * metadata (matching lx-music-mobile's getPlayQuality) while keeping fallbacks available.
    */
   static List<String> resolveQualities(String preferred, JSONObject music) {
-    return resolveQualitiesForDeclared(preferred, declaredQualities(music));
+    return resolveQualities(preferred, music, null);
+  }
+
+  static List<String> resolveQualities(
+      String preferred, JSONObject music, String rememberedQuality) {
+    return resolveQualitiesForDeclared(preferred, declaredQualities(music), rememberedQuality);
   }
 
   static List<String> resolveQualitiesForDeclared(
       String preferred, java.util.Set<String> declared) {
+    return resolveQualitiesForDeclared(preferred, declared, null);
+  }
+
+  static List<String> resolveQualitiesForDeclared(
+      String preferred, java.util.Set<String> declared, String rememberedQuality) {
+    boolean auto = "auto".equals(preferred) || !QUALITY_ORDER.contains(preferred);
     List<String> base =
-        "auto".equals(preferred) || !QUALITY_ORDER.contains(preferred)
-            ? new ArrayList<>(AUTO_QUALITY_ORDER)
-            : playbackQualities(preferred);
-    if (declared == null || declared.isEmpty()) return base;
-    List<String> prioritized = new ArrayList<>();
-    for (String q : base) {
-      if (declared.contains(q)) prioritized.add(q);
+        auto ? new ArrayList<>(AUTO_QUALITY_ORDER) : playbackQualities(preferred);
+    List<String> ordered;
+    if (declared == null || declared.isEmpty()) {
+      ordered = new ArrayList<>(base);
+    } else {
+      ordered = new ArrayList<>();
+      for (String q : base) {
+        if (declared.contains(q)) ordered.add(q);
+      }
+      // Always keep 128k as a final safety fallback even if metadata omitted it.
+      if (!ordered.contains("128k")) ordered.add("128k");
+      if (ordered.isEmpty()) ordered = new ArrayList<>(base);
     }
-    // Always keep 128k as a final safety fallback even if metadata omitted it.
-    if (!prioritized.contains("128k")) prioritized.add("128k");
-    return prioritized.isEmpty() ? base : prioritized;
+    if (auto
+        && rememberedQuality != null
+        && !rememberedQuality.isEmpty()
+        && ordered.contains(rememberedQuality)) {
+      ordered.remove(rememberedQuality);
+      ordered.add(0, rememberedQuality);
+    }
+    return ordered;
   }
 
   private static java.util.Set<String> declaredQualities(JSONObject music) {
@@ -476,6 +503,32 @@ final class LxSources {
         return;
       } catch (Exception ignored) {
       }
+    }
+  }
+
+  synchronized boolean cacheIfCurrent(String key, ResolvedUrlCache.Entry entry) {
+    return cacheIfCurrent(key, entry, null);
+  }
+
+  synchronized boolean cacheIfCurrent(String key, ResolvedUrlCache.Entry entry, ResolvedUrlCache.Entry previous) {
+    if (!isEnabledAtRevision(entry.sourceId, entry.sourceRevision)) return false;
+    ResolvedUrlCache.Entry current = urlCache.indexedFile(key);
+    if (previous == null || (current != null && previous.generation.equals(current.generation))) {
+      urlCache.put(key, entry);
+    }
+    return true;
+  }
+
+  synchronized boolean isEnabledAtRevision(String id, int revision) {
+    if (id == null || id.isEmpty()) return false;
+    try {
+      JSONArray list = rows();
+      int index = find(list, "id", id);
+      if (index < 0) return false;
+      JSONObject row = list.getJSONObject(index);
+      return row.optBoolean("enabled") && row.optInt("revision") == revision;
+    } catch (JSONException ignored) {
+      return false;
     }
   }
 

@@ -34,9 +34,12 @@ import org.json.*;
 
 @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
 public final class PlaybackService extends MediaSessionService {
+  private static final String TAG_TIMING = "LxTiming";
   private static final String RESUME_QUEUE = "playback-queue";
   private static final long CHECKPOINT_INTERVAL = 5000;
   private static final long NOTIFICATION_INTERVAL_MS = 500;
+  private static final long PRELOAD_INITIAL_DELAY_MS = 3_000;
+  private static final long PRELOAD_NEAR_END_MS = 20_000;
   private final Handler main = new Handler(Looper.getMainLooper());
   private MediaSession session;
   private SharedPreferences prefs, savedQueue, savedProgress;
@@ -53,7 +56,9 @@ public final class PlaybackService extends MediaSessionService {
   private OkHttpClient onlineHttp;
   private Future<?> artworkRequest;
   private Future<?> preloadRequest;
-  private volatile SourceRace<LxSources.Candidate, String[]> preloadRace;
+  private String preloadKey;
+  private int preloadGeneration;
+  private int recoveryAttempts;
   private Runnable pendingNotification;
   private long lastNotificationAt;
   private boolean lastForegroundRequired;
@@ -61,6 +66,13 @@ public final class PlaybackService extends MediaSessionService {
   private int artworkIndex = C.INDEX_UNSET;
   private MediaItem decoratedItem;
   private boolean updatingArtwork;
+  private String timingMediaId = "";
+  private long timingStartedAt;
+  private boolean timingReadyLogged, timingPlayingLogged;
+  private boolean seeking;
+  private long rebufferStartedAt;
+  private int rebufferCount;
+  private long rebufferTotalMs;
   private final Runnable refreshArtwork = this::loadCurrentArtwork;
   private final Runnable triggerPreloadNext = this::preloadNextTrack;
   private final Runnable checkpoint =
@@ -68,13 +80,24 @@ public final class PlaybackService extends MediaSessionService {
         @Override
         public void run() {
           if (session == null || !session.getPlayer().isPlaying()) return;
-          saveProgress(session.getPlayer());
+          Player player = session.getPlayer();
+          saveProgress(player);
+          long duration = player.getDuration();
+          long position = player.getCurrentPosition();
+          if (duration > PRELOAD_NEAR_END_MS && duration - position <= PRELOAD_NEAR_END_MS) {
+            preloadNextTrack();
+          }
           main.postDelayed(this, CHECKPOINT_INTERVAL);
         }
       };
   private final SharedPreferences.OnSharedPreferenceChangeListener onPreference =
       (settings, key) -> {
-        if ("playMode".equals(key) && session != null) applyPlayMode(session.getPlayer());
+        if (session == null) return;
+        if ("playMode".equals(key)) applyPlayMode(session.getPlayer());
+        if ("quality".equals(key)) {
+          main.removeCallbacks(triggerPreloadNext);
+          main.post(triggerPreloadNext);
+        }
       };
 
   private void applyPlayMode(Player player) {
@@ -106,13 +129,14 @@ public final class PlaybackService extends MediaSessionService {
     DataSource.Factory data = () -> new LxDataSource(this, store, upstream, onlineHttp);
     DefaultLoadControl loadControl =
         new DefaultLoadControl.Builder()
-            .setBufferDurationsMs(15_000, 50_000, 500, 1_500)
+            .setBufferDurationsMs(30_000, 120_000, 500, 1_500)
             .build();
     DefaultLoadErrorHandlingPolicy loadErrorPolicy =
         new DefaultLoadErrorHandlingPolicy() {
           @Override
           public long getRetryDelayMsFor(LoadErrorInfo loadErrorInfo) {
-            if (loadErrorInfo.exception instanceof LxDataSource.ExhaustedException) {
+            if (loadErrorInfo.exception instanceof LxDataSource.ExhaustedException
+                || loadErrorInfo.exception instanceof LxDataSource.ReprepareException) {
               return C.TIME_UNSET;
             }
             return super.getRetryDelayMsFor(loadErrorInfo);
@@ -176,10 +200,36 @@ public final class PlaybackService extends MediaSessionService {
 
           @Override
           public void onMediaItemTransition(MediaItem item, int reason) {
+            recoveryAttempts = 0;
+            resetTiming(item == null ? "" : item.mediaId);
             main.removeCallbacks(refreshArtwork);
             main.post(refreshArtwork);
             cancelPreload();
-            if (player.isPlaying()) main.postDelayed(triggerPreloadNext, 800);
+            if (player.isPlaying()) main.postDelayed(triggerPreloadNext, PRELOAD_INITIAL_DELAY_MS);
+          }
+
+          @Override
+          public void onPositionDiscontinuity(Player.PositionInfo oldPosition, Player.PositionInfo newPosition,
+              int reason) {
+            recordDiscontinuity(reason);
+          }
+
+          @Override
+          public void onPlayerError(PlaybackException error) {
+            Throwable cause = error;
+            while (cause != null && !(cause instanceof LxDataSource.ReprepareException)) cause = cause.getCause();
+            if (cause == null || recoveryAttempts >= 3) return;
+            MediaItem item = player.getCurrentMediaItem();
+            if (item == null) return;
+            int index = player.getCurrentMediaItemIndex();
+            long position = player.getCurrentPosition();
+            recoveryAttempts++;
+            main.post(() -> {
+              if (session == null || player.getPlayerError() != error || index != player.getCurrentMediaItemIndex()
+                  || !item.equals(player.getCurrentMediaItem())) return;
+              player.seekTo(index, position);
+              player.prepare();
+            });
           }
 
           @Override
@@ -189,13 +239,21 @@ public final class PlaybackService extends MediaSessionService {
                 Player.EVENT_MEDIA_ITEM_TRANSITION,
                 Player.EVENT_PLAY_WHEN_READY_CHANGED,
                 Player.EVENT_PLAYBACK_STATE_CHANGED,
-                Player.EVENT_IS_PLAYING_CHANGED)) saveProgress(player);
+                Player.EVENT_IS_PLAYING_CHANGED)) {
+              updateTiming(player);
+              saveProgress(player);
+            }
+            if (player.isPlaying() && events.containsAny(Player.EVENT_TIMELINE_CHANGED,
+                Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED, Player.EVENT_REPEAT_MODE_CHANGED)) {
+              main.removeCallbacks(triggerPreloadNext);
+              main.postDelayed(triggerPreloadNext, PRELOAD_INITIAL_DELAY_MS);
+            }
             if (events.contains(Player.EVENT_IS_PLAYING_CHANGED)) {
               main.removeCallbacks(checkpoint);
               if (player.isPlaying()) {
                 main.postDelayed(checkpoint, CHECKPOINT_INTERVAL);
                 main.removeCallbacks(triggerPreloadNext);
-                main.postDelayed(triggerPreloadNext, 800);
+                main.postDelayed(triggerPreloadNext, PRELOAD_INITIAL_DELAY_MS);
               }
             }
           }
@@ -387,11 +445,60 @@ public final class PlaybackService extends MediaSessionService {
     return session;
   }
 
+  void resetTiming(String mediaId) {
+    timingMediaId = mediaId == null ? "" : mediaId;
+    timingStartedAt = SystemClock.elapsedRealtime();
+    timingReadyLogged = false;
+    timingPlayingLogged = false;
+    rebufferStartedAt = 0;
+    seeking = false;
+    rebufferCount = 0;
+    rebufferTotalMs = 0;
+  }
+
+  void recordDiscontinuity(int reason) {
+    if (reason == Player.DISCONTINUITY_REASON_SEEK || reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) {
+      seeking = true;
+      rebufferStartedAt = 0;
+    }
+  }
+
+  void updateTiming(Player player) {
+    MediaItem item = player.getCurrentMediaItem();
+    if (item == null) return;
+    if (timingStartedAt == 0) resetTiming(item.mediaId);
+    long now = SystemClock.elapsedRealtime();
+    int state = player.getPlaybackState();
+    if (!player.getPlayWhenReady() || state == Player.STATE_IDLE || state == Player.STATE_ENDED) {
+      rebufferStartedAt = 0;
+    }
+    if (state == Player.STATE_READY) {
+      seeking = false;
+      if (!timingReadyLogged) {
+        timingReadyLogged = true;
+        Log.d(TAG_TIMING, "player ready id=" + timingMediaId + " in " + (now - timingStartedAt) + "ms");
+      }
+      if (rebufferStartedAt > 0) {
+        long stalled = now - rebufferStartedAt;
+        rebufferStartedAt = 0;
+        rebufferTotalMs += stalled;
+        Log.d(TAG_TIMING, "rebuffer #" + (++rebufferCount) + " id=" + timingMediaId
+            + " stalled=" + stalled + "ms total=" + rebufferTotalMs + "ms");
+      }
+    } else if (state == Player.STATE_BUFFERING && player.getPlayWhenReady() && timingPlayingLogged
+        && !seeking && rebufferStartedAt == 0) {
+      rebufferStartedAt = now;
+    }
+    if (player.isPlaying() && !timingPlayingLogged) {
+      timingPlayingLogged = true;
+      Log.d(TAG_TIMING, "player playing id=" + timingMediaId + " in " + (now - timingStartedAt) + "ms");
+    }
+  }
+
   private void cancelPreload() {
     main.removeCallbacks(triggerPreloadNext);
-    SourceRace<LxSources.Candidate, String[]> race = preloadRace;
-    preloadRace = null;
-    if (race != null) race.cancel();
+    preloadGeneration++;
+    preloadKey = null;
     if (preloadRequest != null) {
       preloadRequest.cancel(true);
       preloadRequest = null;
@@ -400,31 +507,47 @@ public final class PlaybackService extends MediaSessionService {
 
   private void preloadNextTrack() {
     if (session == null || onlineHttp == null) return;
-    Player player = session.getPlayer();
+    preloadNextTrack(session.getPlayer(), MusicStore.get(this));
+  }
+
+  void preloadNextTrack(Player player, MusicStore store) {
     if (!player.isPlaying()) return;
-    int nextIndex = player.getNextMediaItemIndex();
-    if (nextIndex == C.INDEX_UNSET || nextIndex < 0 || nextIndex >= player.getMediaItemCount()) return;
-    MediaItem nextItem = player.getMediaItemAt(nextIndex);
-    if (nextItem == null) return;
-    MusicStore store = MusicStore.get(this);
-    JSONObject track = store.queuedTrack(nextItem.mediaId);
-    if (track == null || "local".equals(track.optString("source"))) return;
+    int index = player.getNextMediaItemIndex();
+    JSONObject track = index == C.INDEX_UNSET ? null : store.queuedTrack(player.getMediaItemAt(index).mediaId);
+    if (track == null || "local".equals(track.optString("source"))) {
+      cancelPreload();
+      return;
+    }
+    String preferred = store.prefs.getString("quality", "auto");
+    String key = ResolvedUrlCache.cacheKey(track, preferred);
+    if (key.equals(preloadKey)) return;
     cancelPreload();
+    if (store.sources.urlCache.get(key) != null) return;
+    int generation = preloadGeneration;
+    preloadKey = key;
     preloadRequest = preloadWorker.submit(() -> {
-      SourceRace<LxSources.Candidate, String[]> race = null;
+      ResolvedUrlCache.Entry result = null;
       try {
-        race = LxDataSource.startPreload(this, store, onlineHttp, track);
-        if (race == null) return;
-        preloadRace = race;
-        String[] result = race.await();
-        if (result != null && result.length == 3) {
-          store.sources.urlCache.put(result[2], result[0], result[1]);
-        }
+        SourceRace<LxSources.Candidate, ResolvedUrlCache.Entry> race =
+            LxDataSource.startPreload(this, store, onlineHttp, track, preferred);
+        if (race != null) result = race.await();
       } catch (InterruptedException ignored) {
         Thread.currentThread().interrupt();
       } catch (Exception ignored) {
       } finally {
-        if (preloadRace == race) preloadRace = null;
+        ResolvedUrlCache.Entry completed = result;
+        main.post(() -> {
+          if (generation != preloadGeneration) return;
+          preloadKey = null;
+          preloadRequest = null;
+          if (completed == null || !preferred.equals(store.prefs.getString("quality", "auto"))) return;
+          synchronized (store.sources) {
+            // Foreground playback may already have indexed bytes while the probe was running.
+            if (store.sources.urlCache.get(key) == null) {
+              store.sources.cacheIfCurrent(key, completed);
+            }
+          }
+        });
       }
     });
   }
