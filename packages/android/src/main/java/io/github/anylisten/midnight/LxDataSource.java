@@ -86,6 +86,13 @@ final class LxDataSource implements DataSource {
     ExhaustedException(String message) {
       super(message);
     }
+
+    static ExhaustedException find(Throwable error) {
+      for (; error != null; error = error.getCause()) {
+        if (error instanceof ExhaustedException) return (ExhaustedException) error;
+      }
+      return null;
+    }
   }
 
   private static final class CacheMiss extends IOException {
@@ -264,6 +271,10 @@ final class LxDataSource implements DataSource {
       if (canceled) throw new InterruptedIOException("开流超时或请求已取消");
     }
 
+    synchronized boolean usedNetwork() {
+      return call != null;
+    }
+
     @Override public synchronized Call newCall(Request request) {
       call = http.newCall(request);
       if (canceled) call.cancel();
@@ -367,7 +378,7 @@ final class LxDataSource implements DataSource {
   }
 
   private Stream tryOpenCachedUrl(OpenRequest request, DataSpec spec, String key,
-      ResolvedUrlCache.Entry entry) throws InterruptedException {
+      ResolvedUrlCache.Entry entry) throws InterruptedException, ExhaustedException {
     if (entry == null || !store.sources.isEnabledAtRevision(entry.sourceId, entry.sourceRevision)
         || store.sources.urlCache.recovering(key, entry.sourceId, entry.sourceRevision, entry.actualPlatform)) return null;
     boolean complete = MediaCache.complete(context, entry.mediaCacheKey());
@@ -390,6 +401,8 @@ final class LxDataSource implements DataSource {
       }
     } catch (IOException error) {
       if (!isOpening(request) || Thread.currentThread().isInterrupted()) throw new InterruptedException();
+      ExhaustedException policy = ExhaustedException.find(error);
+      if (policy != null) throw policy;
       if (spec.position > 0 && !diskOnly && !MediaCache.diskError(error)) {
         store.sources.urlCache.bodyFailed(key, indexed);
       }
@@ -403,11 +416,19 @@ final class LxDataSource implements DataSource {
     if (!isOpening(request)) throw new InterruptedException();
     StreamCall call = fileCall(entry, diskOnly);
     request.setCachedCall(call);
+    long start = SystemClock.elapsedRealtime();
+    boolean opened = false;
     try {
       call.limitOpen(CACHED_URL_TIMEOUT_MS);
-      return openFile(spec, key, entry, "cache", call);
+      Stream stream = openFile(spec, key, entry, "cache", call);
+      opened = true;
+      return stream;
     } finally {
       request.clearCachedCall(call);
+      if (spec.position == 0 && call.usedNetwork()) {
+        Log.d(TAG, "cached network open " + (opened ? "ok" : "failed")
+            + " in " + (SystemClock.elapsedRealtime() - start) + "ms");
+      }
     }
   }
 
@@ -502,7 +523,7 @@ final class LxDataSource implements DataSource {
     int tried = 0;
     Set<String> unavailable = Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
     SourceHealthTracker health = store.sources.health;
-    SourceHealthTracker.Key<LxSources.Candidate> key = candidate -> candidate.id + "::" + platform;
+    SourceHealthTracker.Key<LxSources.Candidate> key = candidate -> candidate.healthKey(platform);
     for (String quality : LxSources.resolveQualities(preferred, music, rememberedQuality)) {
       List<LxSources.Candidate> supported = new ArrayList<>();
       for (LxSources.Candidate candidate : remaining) {
@@ -719,7 +740,11 @@ final class LxDataSource implements DataSource {
     if (!spec.uri.equals(pinnedTrack)) pinnedFile = null;
     pinnedTrack = spec.uri;
     Stream cachedStream = tryOpenCachedUrl(request, spec, urlCacheKey, file);
-    if (cachedStream != null) return acceptStream(request, cachedStream, file);
+    if (cachedStream != null) {
+      long length = acceptStream(request, cachedStream, file);
+      if (!continuing && cachedStream.call.usedNetwork()) store.sources.recordPlayback(file, true);
+      return length;
+    }
     if (continuing) throw new ReprepareException();
     if (file != null) store.sources.urlCache.removeIfCurrent(urlCacheKey, file);
     String platform = track.getString("source");
@@ -824,7 +849,7 @@ final class LxDataSource implements DataSource {
     if (chosenQuality == null || supported.isEmpty()) return null;
     final String quality = chosenQuality;
     SourceHealthTracker health = store.sources.health;
-    SourceHealthTracker.Key<LxSources.Candidate> key = candidate -> candidate.id + "::" + platform;
+    SourceHealthTracker.Key<LxSources.Candidate> key = candidate -> candidate.healthKey(platform);
     List<LxSources.Candidate> ranked = health.rankCandidates(supported, key);
     long timeoutMs = ranked.get(0).isWarm() ? WARM_ATTEMPT_TIMEOUT_MS : COLD_ATTEMPT_TIMEOUT_MS;
     return new SourceRace<>(
@@ -837,6 +862,7 @@ final class LxDataSource implements DataSource {
             control.onResult(lease::recordResult);
             control.checkCanceled();
             LxEngine engine = lease.await();
+            control.markReady();
             candidate.cacheCapabilities(engine.capabilities());
             String url = engine.resolve(music, quality, timeoutMs);
             control.onCancel(timedOut -> probeCall.cancel());
@@ -869,7 +895,7 @@ final class LxDataSource implements DataSource {
         },
         result -> {},
         SourceRace.HEDGE_DELAY_MS,
-        timeoutMs);
+        timeoutMs, false);
   }
 
   private Stream openCandidate(
@@ -906,6 +932,7 @@ final class LxDataSource implements DataSource {
         throw error;
       }
       long afterInit = SystemClock.elapsedRealtime();
+      control.markReady();
       stage = "resolve";
       try {
         candidate.cacheCapabilities(engine.capabilities());
@@ -949,6 +976,8 @@ final class LxDataSource implements DataSource {
       } catch (Exception error) {
         control.checkCanceled();
         candidate.ensureCurrent();
+        ExhaustedException policy = ExhaustedException.find(error);
+        if (policy != null) throw new SourceRace.Skipped(policy.getMessage());
         if (engine.isBroken()) unavailable.add(candidate.id);
         Log.d(
             TAG,
@@ -1021,6 +1050,9 @@ final class LxDataSource implements DataSource {
         }
         return count;
       } catch (IOException error) {
+        // Media3 may wrap the network policy exception while opening the next cache hole.
+        ExhaustedException policy = ExhaustedException.find(error);
+        if (policy != null) throw policy;
         if (source == activeUpstream && !Thread.currentThread().isInterrupted()) {
           ResolvedUrlCache.Entry file = stream.file;
           if (CacheMiss.caused(error)) {
@@ -1028,9 +1060,7 @@ final class LxDataSource implements DataSource {
             throw new ReprepareException();
           }
           store.sources.urlCache.bodyFailed(stream.urlCacheKey, file);
-          if (store.sources.isEnabledAtRevision(file.sourceId, file.sourceRevision)) {
-            store.sources.health.recordFailure(file.sourceId + "::" + file.actualPlatform);
-          }
+          if (!MediaCache.diskError(error)) store.sources.recordPlayback(file, false);
           Log.d(TAG, "body failed " + file.actualPlatform + "/" + file.actualQuality, error);
           throw new ReprepareException();
         }

@@ -8,7 +8,9 @@ import android.text.TextUtils;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import okhttp3.HttpUrl;
 import org.json.*;
@@ -20,17 +22,24 @@ import org.json.*;
 final class LxSources {
   private static final String ROWS = "lxSources";
   private final SharedPreferences prefs;
-  final SourceHealthTracker health = new SourceHealthTracker();
+  final SourceHealthTracker health;
   final ResolvedUrlCache urlCache;
-  private final LxEnginePool<LxEngine> pool = new LxEnginePool<>(health);
+  private final LxEnginePool<LxEngine> pool;
+  private final Map<String, String> fingerprints = new HashMap<>();
 
   LxSources(SharedPreferences prefs) throws JSONException {
     this(prefs, null);
   }
 
   LxSources(SharedPreferences prefs, SharedPreferences urlCachePrefs) throws JSONException {
+    this(prefs, urlCachePrefs, new SourceHealthTracker());
+  }
+
+  LxSources(SharedPreferences prefs, SharedPreferences urlCachePrefs, SourceHealthTracker health) throws JSONException {
     this.prefs = prefs;
     this.urlCache = new ResolvedUrlCache(urlCachePrefs);
+    this.health = health;
+    this.pool = new LxEnginePool<>(health);
     String script = prefs.getString("script", "");
     if (prefs.contains(ROWS) || script.isEmpty()) return;
     String id = UUID.randomUUID().toString();
@@ -133,12 +142,17 @@ final class LxSources {
     }
     if (!editor.putString(ROWS, records.toString()).commit())
       throw new IOException("未能保存服务器音源");
-    for (int i = 0; i < existing.length(); i++) invalidate(existing.getJSONObject(i).getString("id"));
+    for (int i = 0; i < existing.length(); i++) {
+      String id = existing.getJSONObject(i).getString("id");
+      invalidate(id, find(records, "id", id) < 0);
+    }
   }
 
-  private void invalidate(String id) {
+  private void invalidate(String id, boolean forgetHistory) {
     pool.invalidate(id);
-    health.invalidateSource(id);
+    fingerprints.remove(id);
+    if (forgetHistory) health.forgetSource(id);
+    else health.invalidateSource(id);
     urlCache.invalidateSource(id);
   }
 
@@ -240,7 +254,7 @@ final class LxSources {
           .put("revision", row.optInt("revision") + 1);
       if (index < 0) list.put(row);
       save(list, key(row.getString("id")), script);
-      invalidate(row.getString("id"));
+      invalidate(row.getString("id"), !unchanged);
       if (index < 0) return new InstallResult("已添加并启用 · " + name, true);
       return new InstallResult((unchanged ? "已保存更新地址 · " : "音源已更新 · ") + name, true);
     }
@@ -282,7 +296,7 @@ final class LxSources {
         throw new IllegalArgumentException(action);
     }
     save(list, removedKey, null);
-    if (action.equals("enableSource") || action.equals("removeSource")) invalidate(id);
+    if (action.equals("enableSource") || action.equals("removeSource")) invalidate(id, removedKey != null);
   }
 
   private void save(JSONArray list, String scriptKey, String script) throws IOException {
@@ -400,6 +414,7 @@ final class LxSources {
   }
 
   final class Candidate {
+    private final String fingerprint;
     final String id, name, script;
     final int revision;
     private volatile JSONObject qualities;
@@ -409,7 +424,12 @@ final class LxSources {
       name = row.getString("name");
       revision = row.optInt("revision");
       script = prefs.getString(key(id), "");
+      fingerprint = scriptFingerprint(id, script);
       qualities = row.optJSONObject("qualities");
+    }
+
+    String healthKey(String platform) {
+      return id + "::" + platform + "::" + fingerprint;
     }
 
     boolean maySupport(String platform, String quality) {
@@ -479,20 +499,56 @@ final class LxSources {
     }
   }
 
-  void prewarm(Context context, int limit) {
-    List<Candidate> enabled = new ArrayList<>();
-    synchronized (this) {
-      try {
-        JSONArray list = rows();
-        for (int i = 0; i < list.length() && enabled.size() < limit; i++) {
-          JSONObject row = list.getJSONObject(i);
-          if (row.optBoolean("enabled")) enabled.add(new Candidate(row));
-        }
-      } catch (JSONException ignored) {
-        return;
+  private synchronized String scriptFingerprint(String id, String script) {
+    String value = fingerprints.get(id);
+    if (value == null) {
+      value = okio.ByteString.encodeUtf8(script.trim()).sha256().hex();
+      fingerprints.put(id, value);
+    }
+    return value;
+  }
+
+  synchronized void recordPlayback(ResolvedUrlCache.Entry file, boolean success) {
+    if (file.actualPlatform.isEmpty()) return;
+    try {
+      JSONArray list = rows();
+      int i = find(list, "id", file.sourceId);
+      if (i < 0) return;
+      JSONObject row = list.getJSONObject(i);
+      if (!row.optBoolean("enabled") || row.optInt("revision") != file.sourceRevision) return;
+      String key = new Candidate(row).healthKey(file.actualPlatform);
+      if (success) health.cachedPlayback(key);
+      else health.recordFailure(key);
+    } catch (JSONException ignored) {}
+  }
+
+  synchronized List<Candidate> prewarmOrder(int limit) throws JSONException {
+    String platform = health.lastPlatform();
+    List<Candidate> order = new ArrayList<>();
+    if (!platform.isEmpty()) {
+      order.addAll(health.rankCandidates(candidates(platform), c -> c.healthKey(platform)));
+    }
+    if (order.size() < limit) {
+      JSONArray list = rows();
+      for (int i = 0; i < list.length() && order.size() < limit; i++) {
+        JSONObject row = list.getJSONObject(i);
+        if (!row.optBoolean("enabled")) continue;
+        boolean included = false;
+        for (Candidate candidate : order) if (candidate.id.equals(row.optString("id"))) included = true;
+        if (!included) order.add(new Candidate(row));
       }
     }
-    for (Candidate candidate : enabled) {
+    return order.subList(0, Math.min(limit, order.size()));
+  }
+
+  void prewarm(Context context, int limit) {
+    List<Candidate> order;
+    try {
+      order = prewarmOrder(limit);
+    } catch (JSONException ignored) {
+      return;
+    }
+    for (Candidate candidate : order) {
       if (Thread.currentThread().isInterrupted()) return;
       if (candidate.isWarm()) continue;
       try (LxEnginePool<LxEngine>.Lease lease = candidate.acquire(context)) {

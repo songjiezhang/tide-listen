@@ -38,6 +38,7 @@ final class SourceRace<T, R> {
   }
 
   interface Control {
+    void markReady();
     void onCancel(Cancellation action);
     void onResult(Observation observer);
     void checkCanceled() throws InterruptedException;
@@ -74,6 +75,7 @@ final class SourceRace<T, R> {
   private final Request<T, R> request;
   private final Close<R> close;
   private final long hedgeDelayMs, timeoutMs;
+  private final boolean playback;
   private final List<Attempt> running = new ArrayList<>();
   private final List<String> failureMessages = new ArrayList<>();
   private ScheduledFuture<?> hedge;
@@ -90,6 +92,11 @@ final class SourceRace<T, R> {
 
   SourceRace(List<T> candidates, SourceHealthTracker health, SourceHealthTracker.Key<T> keys,
       Request<T, R> request, Close<R> close, long hedgeDelayMs, long timeoutMs) {
+    this(candidates, health, keys, request, close, hedgeDelayMs, timeoutMs, true);
+  }
+
+  SourceRace(List<T> candidates, SourceHealthTracker health, SourceHealthTracker.Key<T> keys,
+      Request<T, R> request, Close<R> close, long hedgeDelayMs, long timeoutMs, boolean playback) {
     this.candidates = candidates;
     this.health = health;
     this.keys = keys;
@@ -97,6 +104,7 @@ final class SourceRace<T, R> {
     this.close = close;
     this.hedgeDelayMs = hedgeDelayMs;
     this.timeoutMs = timeoutMs;
+    this.playback = playback;
   }
 
   R await() throws InterruptedException, Failure {
@@ -170,7 +178,7 @@ final class SourceRace<T, R> {
     if (!running.remove(attempt)) return false;
     attempt.timeout.cancel(false);
     if (attempt.observer != null) attempt.observer.record(false);
-    attempt.sample.success(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - attempt.started));
+    attempt.sample.success(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - attempt.latencyStart));
     winner = result;
     finish();
     return true;
@@ -197,6 +205,7 @@ final class SourceRace<T, R> {
     final T candidate;
     final SourceHealthTracker.Sample sample;
     final long started = System.nanoTime();
+    long latencyStart = started;
     Future<?> worker, timeout;
     Cancellation onCancel;
     Observation observer;
@@ -204,7 +213,11 @@ final class SourceRace<T, R> {
 
     Attempt(T candidate) {
       this.candidate = candidate;
-      sample = health.track(keys.get(candidate));
+      sample = health.track(keys.get(candidate), playback);
+    }
+
+    @Override public void markReady() {
+      latencyStart = System.nanoTime();
     }
 
     void run() {

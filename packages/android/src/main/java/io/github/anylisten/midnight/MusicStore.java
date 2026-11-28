@@ -2,6 +2,9 @@ package io.github.anylisten.midnight;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.net.ConnectivityManager;
+import android.net.NetworkCapabilities;
+import android.os.SystemClock;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -39,14 +42,25 @@ final class MusicStore {
     device = prefs.getString("device", UUID.randomUUID().toString());
     prefs.edit().putString("device", device).apply();
     try {
-      sources =
-          new LxSources(prefs, c.getSharedPreferences("resolved-url-cache", Context.MODE_PRIVATE));
+      ConnectivityManager network = (ConnectivityManager) c.getSystemService(Context.CONNECTIVITY_SERVICE);
+      SourceHealthTracker health = new SourceHealthTracker(SystemClock::elapsedRealtime,
+          System::currentTimeMillis, c.getSharedPreferences("source-health-v1", Context.MODE_PRIVATE),
+          () -> {
+            NetworkCapabilities caps = network == null ? null : network.getNetworkCapabilities(network.getActiveNetwork());
+            return canReachMusicNetwork(caps);
+          });
+      sources = new LxSources(prefs, c.getSharedPreferences("resolved-url-cache", Context.MODE_PRIVATE), health);
       tracks = new JSONObject(prefs.getString("tracks", "{}"));
       for (JSONObject track : legacyTracks())
         if ("local".equals(track.optString("source"))) local.put(localId(track), track);
     } catch (JSONException e) {
       throw new IllegalStateException("曲库无法读取", e);
     }
+  }
+
+  static boolean canReachMusicNetwork(NetworkCapabilities caps) {
+    return caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        && !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL);
   }
 
   static JSONObject obj(Object... pairs) throws JSONException {

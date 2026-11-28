@@ -179,6 +179,26 @@ public class PlaybackRecoveryTest {
     assertEquals(TAG, server.takeRequest(2, TimeUnit.SECONDS).getHeader("If-Match"));
   }
 
+  @Test public void meteredNetworkAtCacheHoleStopsWithoutPenalizingSource() throws Exception {
+    cachePrefix();
+    data.open(song);
+    android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
+        context.getSystemService(Context.CONNECTIVITY_SERVICE);
+    org.robolectric.Shadows.shadowOf(cm).setActiveNetworkInfo(
+        org.robolectric.shadows.ShadowNetworkInfo.newInstance(android.net.NetworkInfo.DetailedState.CONNECTED,
+            android.net.ConnectivityManager.TYPE_MOBILE, 0, true, true));
+    assertTrue(cm.isActiveNetworkMetered());
+    store.prefs.edit().putBoolean("unmetered", true).apply();
+    // Exercise the actual HTTP interceptor between the periodic checks in read().
+    ReflectionHelpers.setField(data, "nextNetworkCheck", Long.MAX_VALUE);
+    Map<String, ?> history = context.getSharedPreferences("source-health-v1", 0).getAll();
+    assertThrows(LxDataSource.ExhaustedException.class, this::readAll);
+    assertEquals(history, context.getSharedPreferences("source-health-v1", 0).getAll());
+    assertFalse(store.sources.urlCache.recovering(key, "a", 1, "tx"));
+    assertNotNull(store.sources.urlCache.get(key));
+    assertEquals(1, server.getRequestCount());
+  }
+
   @Test public void unchangedUrlWithNewEtagCannotFillOldSpans() throws Exception {
     cachePrefix();
     ResolvedUrlCache.Entry entry = store.sources.urlCache.get(key);
